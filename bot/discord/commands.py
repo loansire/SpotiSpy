@@ -23,11 +23,11 @@ class SpotifyCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # ── /track ─────────────────────────────────────────────────────────
+    # ── /follow ────────────────────────────────────────────────────────
     @app_commands.command(name="follow", description="Suivre un artiste Spotify via son lien de page")
     @app_commands.describe(url="Lien de la page Spotify de l'artiste (ex: https://open.spotify.com/artist/...)")
     @app_commands.checks.has_permissions(manage_guild=True)
-    async def track(self, interaction: discord.Interaction, url: str):
+    async def follow(self, interaction: discord.Interaction, url: str):
         await interaction.response.defer(ephemeral=True)
 
         if "/artist/" not in url:
@@ -44,12 +44,12 @@ class SpotifyCog(commands.Cog):
                 await interaction.followup.send("❌ Impossible de récupérer l'artiste.", ephemeral=True)
                 return
         except SpotifyException as e:
-            log.error(f"/track SpotifyException | HTTP {e.http_status} | {e.msg}")
+            log.error(f"/follow SpotifyException | HTTP {e.http_status} | {e.msg}")
             await interaction.followup.send(f"❌ Erreur Spotify (HTTP {e.http_status}) : {e.msg}", ephemeral=True)
             return
         except Exception as e:
-            log.error(f"/track Erreur inattendue | {type(e).__name__}: {e}")
-            await interaction.followup.send("❌ Erreur inattendue, consulte les logs.", ephemeral=True)
+            log.error(f"/follow Erreur inattendue | {type(e).__name__}: {e}")
+            await interaction.followup.send("❌ Une erreur inattendue est survenue. Merci de signaler le problème à un administrateur.", ephemeral=True)
             return
 
         aid  = artist["id"]
@@ -62,7 +62,7 @@ class SpotifyCog(commands.Cog):
         try:
             release = await get_latest_release(aid)
         except Exception as e:
-            log.warning(f"/track Impossible de récupérer la dernière sortie de '{name}' | {e}")
+            log.warning(f"/follow Impossible de récupérer la dernière sortie de '{name}' | {e}")
             release = None
 
         tracked[aid] = {
@@ -73,12 +73,12 @@ class SpotifyCog(commands.Cog):
         log.info(f"Artiste ajouté : {name} ({aid})")
         await interaction.followup.send(f"✅ **{name}** ajouté à la liste de suivi !", ephemeral=True)
 
-    # ── /untrack ───────────────────────────────────────────────────────
+    # ── /unfollow ──────────────────────────────────────────────────────
     @app_commands.command(name="unfollow", description="Arrêter de suivre un artiste")
     @app_commands.describe(artiste="Nom de l'artiste à retirer")
     @app_commands.autocomplete(artiste=artist_autocomplete)
     @app_commands.checks.has_permissions(manage_guild=True)
-    async def untrack(self, interaction: discord.Interaction, artiste: str):
+    async def unfollow(self, interaction: discord.Interaction, artiste: str):
         match = next((aid for aid, info in tracked.items()
                       if info["name"].lower() == artiste.lower()), None)
         if not match:
