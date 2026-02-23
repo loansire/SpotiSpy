@@ -3,16 +3,17 @@ from discord import app_commands
 from discord.ext import commands
 from spotipy.exceptions import SpotifyException
 
-from bot.data.storage import tracked, save_data
+from bot.data.storage import tracked, save_data, get_guild
 from bot.spotify.api import get_artist_from_url, get_latest_release
 from bot.utils.logger import log
 
 
 # ─── AUTOCOMPLETE ──────────────────────────────────────────────────────────────
 async def artist_autocomplete(interaction: discord.Interaction, current: str):
+    guild_data = tracked.get(str(interaction.guild_id), {})
     return [
         app_commands.Choice(name=info["name"], value=info["name"])
-        for info in tracked.values()
+        for info in guild_data.values()
         if current.lower() in info["name"].lower()
     ][:25]
 
@@ -24,10 +25,12 @@ class SpotifyCog(commands.Cog):
 
     # ── /follow ────────────────────────────────────────────────────────
     @app_commands.command(name="follow", description="S'abonner aux alertes d'un artiste Spotify")
-    @app_commands.describe(url="Lien de la page Spotify de l'artiste (ex: https://open.spotify.com/artist/...)")
+    @app_commands.describe(url="Lien de la page Spotify de l'artiste")
     async def follow(self, interaction: discord.Interaction, url: str):
         await interaction.response.defer(ephemeral=True)
-        uid = interaction.user.id
+        uid      = interaction.user.id
+        gid      = str(interaction.guild_id)
+        guild_data = get_guild(interaction.guild_id)
 
         if "/artist/" not in url:
             await interaction.followup.send(
@@ -48,41 +51,41 @@ class SpotifyCog(commands.Cog):
             return
         except Exception as e:
             log.error(f"/follow Erreur inattendue | {type(e).__name__}: {e}")
-            await interaction.followup.send("❌ Une erreur inattendue est survenue. Merci de signaler le problème à un administrateur.", ephemeral=True)
+            await interaction.followup.send("❌ Une erreur inattendue est survenue.", ephemeral=True)
             return
 
         aid  = artist["id"]
         name = artist["name"]
 
-        # Artiste déjà en base → ajouter l'utilisateur aux abonnés
-        if aid in tracked:
-            subs = tracked[aid].setdefault("subscribers", [])
+        # Artiste déjà suivi sur ce guild
+        if aid in guild_data:
+            subs = guild_data[aid].setdefault("subscribers", [])
             if uid in subs:
                 await interaction.followup.send(f"⚠️ Tu es déjà abonné(e) à **{name}**.", ephemeral=True)
                 return
             subs.append(uid)
             save_data(tracked)
-            log.info(f"Abonné ajouté : {interaction.user} → {name}")
+            log.info(f"[Guild {gid}] Abonné ajouté : {interaction.user} → {name}")
             await interaction.followup.send(f"✅ Tu es maintenant abonné(e) à **{name}** !", ephemeral=True)
             return
 
-        # Nouvel artiste → créer l'entrée + abonner l'utilisateur
+        # Nouvel artiste sur ce guild
         try:
             release = await get_latest_release(aid)
         except Exception as e:
             log.warning(f"/follow Impossible de récupérer la dernière sortie de '{name}' | {e}")
             release = None
 
-        tracked[aid] = {
-            "name": name,
+        guild_data[aid] = {
+            "name":              name,
             "last_release_id":   release["id"] if release else None,
             "last_release_name": release["name"] if release else None,
             "last_release_url":  release["external_urls"]["spotify"] if release else None,
-            "subscribers": [uid],
-            "notify_role": False
+            "subscribers":       [uid],
+            "notify_role":       False
         }
         save_data(tracked)
-        log.info(f"Artiste ajouté : {name} ({aid}) — abonné : {interaction.user}")
+        log.info(f"[Guild {gid}] Artiste ajouté : {name} ({aid}) — abonné : {interaction.user}")
         await interaction.followup.send(f"✅ **{name}** ajouté et tu es abonné(e) aux alertes !", ephemeral=True)
 
     # ── /unfollow ──────────────────────────────────────────────────────
@@ -90,15 +93,17 @@ class SpotifyCog(commands.Cog):
     @app_commands.describe(artiste="Nom de l'artiste")
     @app_commands.autocomplete(artiste=artist_autocomplete)
     async def unfollow(self, interaction: discord.Interaction, artiste: str):
-        uid = interaction.user.id
+        uid        = interaction.user.id
+        gid        = str(interaction.guild_id)
+        guild_data = tracked.get(gid, {})
 
-        match = next((aid for aid, info in tracked.items()
+        match = next((aid for aid, info in guild_data.items()
                       if info["name"].lower() == artiste.lower()), None)
         if not match:
             await interaction.response.send_message(f"❌ **{artiste}** n'est pas dans la liste.", ephemeral=True)
             return
 
-        info = tracked[match]
+        info = guild_data[match]
         subs = info.get("subscribers", [])
 
         if uid not in subs:
@@ -107,28 +112,32 @@ class SpotifyCog(commands.Cog):
 
         subs.remove(uid)
 
-        # Supprimer l'artiste si plus aucun abonné ET pas de ping rôle admin
         if not subs and not info.get("notify_role"):
-            del tracked[match]
+            del tracked[gid][match]
+            if not tracked[gid]:
+                del tracked[gid]
             save_data(tracked)
-            log.info(f"Artiste supprimé (plus d'abonnés) : {info['name']} ({match})")
-            await interaction.response.send_message(f"🗑️ Tu es désabonné(e) de **{info['name']}** (artiste retiré de la liste).", ephemeral=True)
+            log.info(f"[Guild {gid}] Artiste supprimé (plus d'abonnés) : {info['name']}")
+            await interaction.response.send_message(
+                f"🗑️ Tu es désabonné(e) de **{info['name']}** (artiste retiré de la liste).", ephemeral=True
+            )
             return
 
         save_data(tracked)
-        log.info(f"Abonné retiré : {interaction.user} → {info['name']}")
+        log.info(f"[Guild {gid}] Abonné retiré : {interaction.user} → {info['name']}")
         await interaction.response.send_message(f"✅ Tu es désabonné(e) de **{info['name']}**.", ephemeral=True)
 
     # ── /list ──────────────────────────────────────────────────────────
-    @app_commands.command(name="list", description="Voir les artistes suivis")
+    @app_commands.command(name="list", description="Voir les artistes suivis sur ce serveur")
     async def list_artists(self, interaction: discord.Interaction):
-        if not tracked:
-            await interaction.response.send_message("📭 Aucun artiste suivi pour l'instant.", ephemeral=True)
+        guild_data = tracked.get(str(interaction.guild_id), {})
+        if not guild_data:
+            await interaction.response.send_message("📭 Aucun artiste suivi sur ce serveur.", ephemeral=True)
             return
 
-        uid = interaction.user.id
+        uid   = interaction.user.id
         lines = []
-        for info in tracked.values():
+        for info in guild_data.values():
             subscribed = uid in info.get("subscribers", [])
             marker = "🔔" if subscribed else "•"
             lines.append(f"{marker} **{info['name']}**")
@@ -146,8 +155,10 @@ class SpotifyCog(commands.Cog):
     @app_commands.describe(artiste="Nom de l'artiste")
     @app_commands.autocomplete(artiste=artist_autocomplete)
     async def latest(self, interaction: discord.Interaction, artiste: str):
+        guild_data = tracked.get(str(interaction.guild_id), {})
+
         match = next((
-            (aid, info) for aid, info in tracked.items()
+            (aid, info) for aid, info in guild_data.items()
             if info["name"].lower() == artiste.lower()
         ), None)
 

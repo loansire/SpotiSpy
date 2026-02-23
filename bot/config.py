@@ -18,3 +18,4 @@ DATA_FILE          = "tracked.json"
 CHECK_INTERVAL_H   = 1        # intervalle de vérification en heures
 STARTUP_DELAY_S    = 10       # délai avant le premier cycle en secondes
 LOG_FILE           = "bot.log"
+SLEEP_THRESHOLD    = 100      # nb d'artistes à partir duquel on active le délai entre requêtes
