@@ -7,6 +7,7 @@ from bot.utils.logger import log
 async def main():
     async with bot:
         await bot.load_extension("bot.discord.commands")
+        await bot.load_extension("bot.discord.admin")
         log.info("Démarrage du bot...")
         await bot.start(DISCORD_TOKEN)
 

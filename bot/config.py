@@ -11,6 +11,7 @@ SPOTIFY_SECRET     = os.getenv("SPOTIFY_SECRET")
 # ─── DISCORD IDS ───────────────────────────────────────────────────────────────
 ANNOUNCE_CHANNEL   = int(os.getenv("ANNOUNCE_CHANNEL", 0))
 NOTIFY_ROLE_ID     = int(os.getenv("NOTIFY_ROLE_ID", 0))
+ADMIN_ROLE_ID      = int(os.getenv("ADMIN_ROLE_ID", 0))
 
 # ─── PATHS & SETTINGS ─────────────────────────────────────────────────────────
 DATA_FILE          = "tracked.json"

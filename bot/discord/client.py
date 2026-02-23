@@ -15,6 +15,26 @@ intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
+# ─── CONSTRUCTION DES MENTIONS ─────────────────────────────────────────────────
+def build_mentions(info: dict, guild: discord.Guild) -> str:
+    """Construit la chaîne de mentions (utilisateurs + rôle si activé)."""
+    mentions = []
+
+    # Ping des utilisateurs abonnés
+    for uid in info.get("subscribers", []):
+        mentions.append(f"<@{uid}>")
+
+    # Ping du rôle général si activé par un admin
+    if info.get("notify_role"):
+        role = guild.get_role(NOTIFY_ROLE_ID)
+        if role:
+            mentions.append(role.mention)
+        else:
+            log.warning(f"Rôle introuvable (ID={NOTIFY_ROLE_ID}), ping rôle ignoré")
+
+    return " ".join(mentions) if mentions else ""
+
+
 # ─── VÉRIFICATION DES SORTIES ─────────────────────────────────────────────────
 async def do_check(filter_name: str = None):
     """Vérifie les nouvelles sorties pour les artistes suivis."""
@@ -42,15 +62,17 @@ async def do_check(filter_name: str = None):
                 tracked[artist_id]["last_release_url"]   = release["external_urls"]["spotify"]
                 save_data(tracked)
 
-                role    = channel.guild.get_role(NOTIFY_ROLE_ID)
-                mention = role.mention if role else "@everyone"
-                if not role:
-                    log.warning(f"Rôle introuvable (ID={NOTIFY_ROLE_ID}), fallback @everyone")
-
-                await channel.send(
-                    f"{mention} Nouvelle sortie !\n"
-                    f"[{info['name']} — {release['name']}]({release['external_urls']['spotify']})"
-                )
+                mentions = build_mentions(info, channel.guild)
+                if mentions:
+                    await channel.send(
+                        f"{mentions} Nouvelle sortie !\n"
+                        f"[{info['name']} — {release['name']}]({release['external_urls']['spotify']})"
+                    )
+                else:
+                    await channel.send(
+                        f"Nouvelle sortie !\n"
+                        f"[{info['name']} — {release['name']}]({release['external_urls']['spotify']})"
+                    )
                 log.info(f"🎶 Nouvelle sortie détectée : {info['name']} — {release['name']}")
             else:
                 log.debug(f"Pas de nouvelle sortie pour '{info['name']}' — ID inchangé")
