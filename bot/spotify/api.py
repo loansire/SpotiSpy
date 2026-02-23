@@ -30,8 +30,7 @@ def _get_latest_release(artist_id: str) -> dict | None:
     results = sp.artist_albums(
         artist_id,
         album_type="album,single,compilation",
-        limit=5,
-        country="FR"
+        limit=5
     )
     items = results.get("items", [])
     if not items:
