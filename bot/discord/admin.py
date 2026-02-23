@@ -4,13 +4,13 @@ from discord.ext import commands
 from spotipy.exceptions import SpotifyException
 
 from bot.config import ADMIN_ROLE_ID
-from bot.data.storage import tracked, save_data, get_guild
+from bot.data.storage import tracked, save_data, add_artist, cleanup_artist
 from bot.spotify.api import get_artist_from_url, get_latest_release
-from bot.discord.client import do_check
+from bot.spotify.checker import do_check
+from bot.utils.autocomplete import artist_autocomplete
 from bot.utils.logger import log
 
 
-# ─── CHECK RÔLE ADMIN ─────────────────────────────────────────────────────────
 def has_admin_role():
     async def predicate(interaction: discord.Interaction) -> bool:
         if not interaction.guild:
@@ -23,17 +23,6 @@ def has_admin_role():
     return app_commands.check(predicate)
 
 
-# ─── AUTOCOMPLETE ──────────────────────────────────────────────────────────────
-async def artist_autocomplete(interaction: discord.Interaction, current: str):
-    guild_data = tracked.get(str(interaction.guild_id), {})
-    return [
-        app_commands.Choice(name=info["name"], value=info["name"])
-        for info in guild_data.values()
-        if current.lower() in info["name"].lower()
-    ][:25]
-
-
-# ─── COG ADMIN ─────────────────────────────────────────────────────────────────
 class AdminCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -44,8 +33,6 @@ class AdminCog(commands.Cog):
     @has_admin_role()
     async def admin_follow(self, interaction: discord.Interaction, url: str):
         await interaction.response.defer(ephemeral=True)
-        gid        = str(interaction.guild_id)
-        guild_data = get_guild(interaction.guild_id)
 
         if "/artist/" not in url:
             await interaction.followup.send(
@@ -69,38 +56,25 @@ class AdminCog(commands.Cog):
             await interaction.followup.send("❌ Une erreur inattendue est survenue.", ephemeral=True)
             return
 
+        gid  = interaction.guild_id
         aid  = artist["id"]
         name = artist["name"]
 
-        # Artiste déjà sur ce guild → activer le ping rôle
-        if aid in guild_data:
-            if guild_data[aid].get("notify_role"):
-                await interaction.followup.send(f"⚠️ **{name}** a déjà le ping rôle activé.", ephemeral=True)
-                return
-            guild_data[aid]["notify_role"] = True
-            save_data(tracked)
-            log.info(f"[Guild {gid}] Ping rôle activé pour : {name} ({aid})")
-            await interaction.followup.send(f"✅ Ping rôle activé pour **{name}** !", ephemeral=True)
+        guild_data = tracked.get(str(gid), {})
+        if aid in guild_data and guild_data[aid].get("notify_role"):
+            await interaction.followup.send(f"⚠️ **{name}** a déjà le ping rôle activé.", ephemeral=True)
             return
 
-        # Nouvel artiste
         try:
             release = await get_latest_release(aid)
         except Exception as e:
             log.warning(f"/admin-follow Impossible de récupérer la dernière sortie de '{name}' | {e}")
             release = None
 
-        guild_data[aid] = {
-            "name":              name,
-            "last_release_id":   release["id"] if release else None,
-            "last_release_name": release["name"] if release else None,
-            "last_release_url":  release["external_urls"]["spotify"] if release else None,
-            "subscribers":       [],
-            "notify_role":       True
-        }
-        save_data(tracked)
-        log.info(f"[Guild {gid}] Artiste ajouté (admin) : {name} ({aid})")
-        await interaction.followup.send(f"✅ **{name}** ajouté avec notification rôle !", ephemeral=True)
+        created = add_artist(gid, artist, release, notify_role=True, user_id=None)
+        action  = "ajouté avec" if created else "ping rôle activé —"
+        log.info(f"[Guild {gid}] {action} notification rôle : {name} ({aid})")
+        await interaction.followup.send(f"✅ **{name}** — {action} notification rôle !", ephemeral=True)
 
     # ── /admin-unfollow ────────────────────────────────────────────────
     @app_commands.command(name="admin-unfollow", description="[Admin] Retirer un artiste ou désactiver le ping rôle")
@@ -111,8 +85,8 @@ class AdminCog(commands.Cog):
     @app_commands.autocomplete(artiste=artist_autocomplete)
     @has_admin_role()
     async def admin_unfollow(self, interaction: discord.Interaction, artiste: str, force: bool = False):
-        gid        = str(interaction.guild_id)
-        guild_data = tracked.get(gid, {})
+        gid        = interaction.guild_id
+        guild_data = tracked.get(str(gid), {})
 
         match = next((aid for aid, info in guild_data.items()
                       if info["name"].lower() == artiste.lower()), None)
@@ -125,9 +99,9 @@ class AdminCog(commands.Cog):
 
         if force:
             sub_count = len(info.get("subscribers", []))
-            del tracked[gid][match]
-            if not tracked[gid]:
-                del tracked[gid]
+            del tracked[str(gid)][match]
+            if not tracked[str(gid)]:
+                del tracked[str(gid)]
             save_data(tracked)
             log.info(f"[Guild {gid}] Artiste supprimé (force) : {name} — {sub_count} abonné(s) retirés")
             await interaction.response.send_message(
@@ -137,27 +111,18 @@ class AdminCog(commands.Cog):
 
         if not info.get("notify_role"):
             await interaction.response.send_message(
-                f"⚠️ **{name}** n'a pas le ping rôle activé. Utilise `force:True` pour supprimer.", ephemeral=True
+                f"⚠️ **{name}** n'a pas le ping rôle activé. Utilise `force:True` pour supprimer.",
+                ephemeral=True
             )
             return
 
         info["notify_role"] = False
-
-        if not info.get("subscribers"):
-            del tracked[gid][match]
-            if not tracked[gid]:
-                del tracked[gid]
-            save_data(tracked)
-            log.info(f"[Guild {gid}] Artiste supprimé (plus de ping ni d'abonnés) : {name}")
-            await interaction.response.send_message(
-                f"🗑️ Ping rôle désactivé — **{name}** retiré (aucun abonné restant).", ephemeral=True
-            )
-            return
-
         save_data(tracked)
         log.info(f"[Guild {gid}] Ping rôle désactivé pour : {name}")
+        cleanup_artist(gid, match)
+
         await interaction.response.send_message(
-            f"✅ Ping rôle désactivé pour **{name}** (abonnés individuels conservés).", ephemeral=True
+            f"✅ Ping rôle désactivé pour **{name}**.", ephemeral=True
         )
 
     # ── /admin-check ───────────────────────────────────────────────────
@@ -171,11 +136,10 @@ class AdminCog(commands.Cog):
             f"🔄 Vérification en cours{f' pour **{artiste}**' if artiste else ''}...",
             ephemeral=True
         )
-        await do_check(filter_name=artiste, guild_id=interaction.guild_id)
+        await do_check(interaction.client, filter_name=artiste, guild_id=interaction.guild_id)
         await interaction.followup.send("✅ Vérification terminée.", ephemeral=True)
 
 
-# ─── SETUP ─────────────────────────────────────────────────────────────────────
 async def setup(bot: commands.Bot):
     await bot.add_cog(AdminCog(bot))
     log.info("Cog AdminCog chargé")
