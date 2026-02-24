@@ -118,20 +118,20 @@ class ConfirmNoButton(ui.Button):
 class SwitchPageButton(ui.Button):
     """Bouton pour changer de page."""
 
-    def __init__(self, target_page: str):
+    def __init__(self, target_page: str, disabled: bool = False):
         labels = {
-            "server":  ("📋", "Artistes du serveur"),
+            "server":  ("📋", "Serveur"),
             "follows": ("🔔", "Mes follows"),
             "admin":   ("⚙️", "Liste rôle"),
         }
         emoji, label = labels.get(target_page, ("❓", target_page))
-        super().__init__(label=label, emoji=emoji, style=discord.ButtonStyle.primary)
+        super().__init__(
+            label=label,
+            emoji=emoji,
+            style=discord.ButtonStyle.primary,
+            disabled=disabled,
+        )
         self.target_page = target_page
-
-    async def callback(self, interaction: discord.Interaction):
-        from bot.ui.list_view import ArtistListView
-        view = ArtistListView(interaction.user, interaction.guild, page=self.target_page)
-        await interaction.response.edit_message(view=view)
 
 
 # ── Boutons admin ──────────────────────────────────────────────────────
