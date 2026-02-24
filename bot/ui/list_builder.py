@@ -40,18 +40,15 @@ def build_my_follows(user: discord.Member, guild: discord.Guild) -> list:
         components.append(ui.TextDisplay("*Tu ne suis aucun artiste pour le moment.*"))
         return components
 
-    for aid, info in followed:
+    for i, (aid, info) in enumerate(followed):
+        if i > 0:
+            components.append(ui.Separator(visible=True))
         img = info.get("image_url")
+        text = ui.TextDisplay(_artist_text(info))
         if img:
-            section = ui.Section(
-                ui.TextDisplay(_artist_text(info)),
-                accessory=ui.Thumbnail(img),
-            )
+            components.append(ui.Section(text, accessory=ui.Thumbnail(img)))
         else:
-            section = ui.Section(
-                ui.TextDisplay(_artist_text(info)),
-            )
-        components.append(section)
+            components.append(text)
         buttons = [UnsubscribeButton(artist_id=aid, artist_name=info["name"])]
         if admin and not info.get("notify_role"):
             buttons.append(AdminAddRoleButton(artist_id=aid, artist_name=info["name"]))
@@ -80,18 +77,15 @@ def build_server_artists(user: discord.Member, guild: discord.Guild) -> list:
         components.append(ui.TextDisplay("*Tu suis déjà tous les artistes du serveur !*"))
         return components
 
-    for aid, info in not_followed:
+    for i, (aid, info) in enumerate(not_followed):
+        if i > 0:
+            components.append(ui.Separator(visible=True))
         img = info.get("image_url")
+        text = ui.TextDisplay(_artist_text(info))
         if img:
-            section = ui.Section(
-                ui.TextDisplay(_artist_text(info)),
-                accessory=ui.Thumbnail(img),
-            )
+            components.append(ui.Section(text, accessory=ui.Thumbnail(img)))
         else:
-            section = ui.Section(
-                ui.TextDisplay(_artist_text(info)),
-            )
-        components.append(section)
+            components.append(text)
         buttons = [SubscribeButton(artist_id=aid, artist_name=info["name"])]
         if admin and not info.get("notify_role"):
             buttons.append(AdminAddRoleButton(artist_id=aid, artist_name=info["name"]))
@@ -118,18 +112,15 @@ def build_admin_role_list(user: discord.Member, guild: discord.Guild) -> list:
         components.append(ui.TextDisplay("*Aucun artiste n'a le ping rôle activé.*"))
         return components
 
-    for aid, info in role_artists:
+    for i, (aid, info) in enumerate(role_artists):
+        if i > 0:
+            components.append(ui.Separator(visible=True))
         img = info.get("image_url")
+        text = ui.TextDisplay(_artist_text(info))
         if img:
-            section = ui.Section(
-                ui.TextDisplay(_artist_text(info)),
-                accessory=ui.Thumbnail(img),
-            )
+            components.append(ui.Section(text, accessory=ui.Thumbnail(img)))
         else:
-            section = ui.Section(
-                ui.TextDisplay(_artist_text(info)),
-            )
-        components.append(section)
+            components.append(text)
         components.append(ui.ActionRow(AdminRemoveRoleButton(artist_id=aid, artist_name=info["name"])))
 
     return components
