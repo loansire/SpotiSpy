@@ -5,9 +5,8 @@ from spotipy.exceptions import SpotifyException
 
 from bot.data.storage import tracked, save_data, add_artist, cleanup_artist
 from bot.spotify.api import get_artist_from_url, get_latest_release
-from bot.utils.autocomplete import artist_autocomplete
+from bot.utils.autocomplete import artist_autocomplete, subscribed_autocomplete
 from bot.utils.logger import log
-
 
 class SpotifyCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -66,7 +65,7 @@ class SpotifyCog(commands.Cog):
     # ── /unfollow ──────────────────────────────────────────────────────
     @app_commands.command(name="unfollow", description="Se désabonner des alertes d'un artiste")
     @app_commands.describe(artiste="Nom de l'artiste")
-    @app_commands.autocomplete(artiste=artist_autocomplete)
+    @app_commands.autocomplete(artiste=subscribed_autocomplete)
     async def unfollow(self, interaction: discord.Interaction, artiste: str):
         uid        = interaction.user.id
         gid        = interaction.guild_id
@@ -95,7 +94,7 @@ class SpotifyCog(commands.Cog):
         await interaction.response.send_message(f"✅ Tu es désabonné(e) de **{info['name']}**.", ephemeral=True)
 
     # ── /list ──────────────────────────────────────────────────────────
-    @app_commands.command(name="list", description="Voir les artistes suivis sur ce serveur")
+    @app_commands.command(name="liste", description="Voir les artistes suivis sur ce serveur")
     async def list_artists(self, interaction: discord.Interaction):
         guild_data = tracked.get(str(interaction.guild_id), {})
         if not guild_data:
@@ -112,7 +111,7 @@ class SpotifyCog(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # ── /latest ────────────────────────────────────────────────────────
-    @app_commands.command(name="latest", description="Afficher la dernière sortie connue d'un artiste suivi")
+    @app_commands.command(name="derniere_sortie", description="Afficher la dernière sortie connue d'un artiste suivi")
     @app_commands.describe(artiste="Nom de l'artiste")
     @app_commands.autocomplete(artiste=artist_autocomplete)
     async def latest(self, interaction: discord.Interaction, artiste: str):
@@ -122,7 +121,7 @@ class SpotifyCog(commands.Cog):
 
         if not match:
             await interaction.response.send_message(
-                f"❌ **{artiste}** n'est pas dans la liste. Utilise `/list` pour voir les artistes suivis.",
+                f"❌ **{artiste}** n'est pas dans la liste. Utilise `/liste` pour voir les artistes suivis.",
                 ephemeral=True
             )
             return

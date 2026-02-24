@@ -16,10 +16,9 @@ sp = spotipy.Spotify(
         client_id=SPOTIFY_CLIENT_ID,
         client_secret=SPOTIFY_SECRET
     ),
-    retries=1  # 0 = infini, 1 = aucun retry
+    retries=1
 )
 
-# Désactive tout retry HTTP automatique
 _session = requests.Session()
 _session.mount("https://", HTTPAdapter(max_retries=0))
 sp._session = _session
@@ -27,12 +26,10 @@ sp._session = _session
 
 # ─── FONCTIONS SYNCHRONES (exécutées dans un thread) ──────────────────────────
 def _get_latest_release(artist_id: str) -> dict | None:
-    results = sp.artist_albums(
-        artist_id,
-        album_type="album,single,compilation",
-        limit=5
-    )
-    items = results.get("items", [])
+    albums = sp.artist_albums(artist_id, album_type="album,compilation", limit=1)
+    singles = sp.artist_albums(artist_id, album_type="single", limit=1)
+
+    items = albums.get("items", []) + singles.get("items", [])
     if not items:
         return None
     items.sort(key=lambda x: x.get("release_date", "0000"), reverse=True)

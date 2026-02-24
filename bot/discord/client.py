@@ -32,15 +32,20 @@ async def before_check():
 @bot.event
 async def on_ready():
     await bot.tree.sync()
-    check_releases.start()
+    # check_releases.start()
     total = sum(len(a) for a in tracked.values())
     log.info(f"Bot connecté en tant que {bot.user} | {len(tracked)} guild(s) | {total} artiste(s) suivis")
 
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error):
-    if isinstance(error, app_commands.MissingPermissions):
-        await interaction.response.send_message("🚫 Tu n'as pas la permission.", ephemeral=True)
+    if isinstance(error, app_commands.CheckFailure):
+        await interaction.response.send_message("🚫 Tu n'as pas la permission d'utiliser cette commande.", ephemeral=True)
+    elif isinstance(error, app_commands.CommandOnCooldown):
+        await interaction.response.send_message(f"⏳ Cooldown — réessaie dans {error.retry_after:.0f}s.", ephemeral=True)
     else:
         log.error(f"Erreur commande /{interaction.command.name if interaction.command else '?'}: {error}")
-        await interaction.response.send_message(f"❌ Erreur : {error}", ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message(f"❌ Erreur : {error}", ephemeral=True)
+        else:
+            await interaction.followup.send(f"❌ Erreur : {error}", ephemeral=True)

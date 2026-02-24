@@ -125,21 +125,6 @@ class AdminCog(commands.Cog):
             f"✅ Ping rôle désactivé pour **{name}**.", ephemeral=True
         )
 
-    # ── /admin-check ───────────────────────────────────────────────────
-    @app_commands.command(name="admin-check", description="[Admin] Forcer une vérification immédiate")
-    @app_commands.describe(artiste="Artiste spécifique à vérifier, ou laisser vide pour tous")
-    @app_commands.autocomplete(artiste=artist_autocomplete)
-    @has_admin_role()
-    @app_commands.checks.cooldown(1, 60, key=lambda i: i.guild_id)
-    async def admin_check(self, interaction: discord.Interaction, artiste: str = None):
-        await interaction.response.send_message(
-            f"🔄 Vérification en cours{f' pour **{artiste}**' if artiste else ''}...",
-            ephemeral=True
-        )
-        await do_check(interaction.client, filter_name=artiste, guild_id=interaction.guild_id)
-        await interaction.followup.send("✅ Vérification terminée.", ephemeral=True)
-
-
 async def setup(bot: commands.Bot):
     await bot.add_cog(AdminCog(bot))
     log.info("Cog AdminCog chargé")
