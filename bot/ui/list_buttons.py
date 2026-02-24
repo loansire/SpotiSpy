@@ -133,6 +133,11 @@ class SwitchPageButton(ui.Button):
         )
         self.target_page = target_page
 
+    async def callback(self, interaction: discord.Interaction):
+        from bot.ui.list_view import ArtistListView
+        view = ArtistListView(interaction.user, interaction.guild, page=self.target_page)
+        await interaction.response.edit_message(view=view)
+
 
 # ── Boutons admin ──────────────────────────────────────────────────────
 
