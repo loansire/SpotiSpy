@@ -32,7 +32,7 @@ async def before_check():
 @bot.event
 async def on_ready():
     await bot.tree.sync()
-    # check_releases.start()
+    check_releases.start()
     total = sum(len(a) for a in tracked.values())
     log.info(f"Bot connecté en tant que {bot.user} | {len(tracked)} guild(s) | {total} artiste(s) suivis")
 

@@ -13,7 +13,7 @@ class SpotifyCog(commands.Cog):
         self.bot = bot
 
     # ── /follow ────────────────────────────────────────────────────────
-    @app_commands.command(name="follow", description="S'abonner aux alertes d'un artiste Spotify")
+    @app_commands.command(name="spy", description="S'abonner aux alertes d'un artiste Spotify")
     @app_commands.describe(url="Lien de la page Spotify de l'artiste")
     async def follow(self, interaction: discord.Interaction, url: str):
         await interaction.response.defer(ephemeral=True)
@@ -32,11 +32,11 @@ class SpotifyCog(commands.Cog):
                 await interaction.followup.send("❌ Impossible de récupérer l'artiste.", ephemeral=True)
                 return
         except SpotifyException as e:
-            log.error(f"/follow SpotifyException | HTTP {e.http_status} | {e.msg}")
+            log.error(f"/spy SpotifyException | HTTP {e.http_status} | {e.msg}")
             await interaction.followup.send(f"❌ Erreur Spotify (HTTP {e.http_status}) : {e.msg}", ephemeral=True)
             return
         except Exception as e:
-            log.error(f"/follow Erreur inattendue | {type(e).__name__}: {e}")
+            log.error(f"/spyErreur inattendue | {type(e).__name__}: {e}")
             await interaction.followup.send("❌ Une erreur inattendue est survenue.", ephemeral=True)
             return
 
@@ -54,7 +54,7 @@ class SpotifyCog(commands.Cog):
         try:
             release = await get_latest_release(aid)
         except Exception as e:
-            log.warning(f"/follow Impossible de récupérer la dernière sortie de '{name}' | {e}")
+            log.warning(f"/spy Impossible de récupérer la dernière sortie de '{name}' | {e}")
             release = None
 
         created = add_artist(gid, artist, release, notify_role=False, user_id=uid)
@@ -63,7 +63,7 @@ class SpotifyCog(commands.Cog):
         await interaction.followup.send(f"✅ **{name}** — {action} aux alertes !", ephemeral=True)
 
     # ── /unfollow ──────────────────────────────────────────────────────
-    @app_commands.command(name="unfollow", description="Se désabonner des alertes d'un artiste")
+    @app_commands.command(name="unspy", description="Se désabonner des alertes d'un artiste")
     @app_commands.describe(artiste="Nom de l'artiste")
     @app_commands.autocomplete(artiste=subscribed_autocomplete)
     async def unfollow(self, interaction: discord.Interaction, artiste: str):
