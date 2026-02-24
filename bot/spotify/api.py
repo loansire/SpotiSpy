@@ -14,7 +14,8 @@ from bot.utils.logger import log
 sp = spotipy.Spotify(
     auth_manager=SpotifyClientCredentials(
         client_id=SPOTIFY_CLIENT_ID,
-        client_secret=SPOTIFY_SECRET
+        client_secret=SPOTIFY_SECRET,
+        cache_handler=spotipy.MemoryCacheHandler()
     ),
     retries=1
 )
