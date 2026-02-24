@@ -2,14 +2,30 @@ import discord
 from discord import ui
 
 from bot.data.storage import tracked
-from bot.ui.list_buttons import SubscribeButton, UnsubscribeButton
+from bot.ui.list_buttons import (
+    SubscribeButton,
+    UnsubscribeButton,
+    AdminAddRoleButton,
+    AdminRemoveRoleButton,
+    is_admin,
+)
 
 
-def build_my_follows(user: discord.User | discord.Member, guild: discord.Guild) -> list:
-    """Construit les composants pour la page 'Mes follows'."""
+def _artist_text(info: dict) -> str:
+    """Texte formaté pour un artiste."""
+    text = f"**{info['name']}**"
+    last = info.get("last_release_name")
+    if last:
+        text += f"\n-# Dernière sortie : {last}"
+    return text
+
+
+def build_my_follows(user: discord.Member, guild: discord.Guild) -> list:
+    """Page 'Mes follows' — artistes auxquels l'utilisateur est abonné."""
     gid = str(guild.id)
     uid = user.id
     guild_data = tracked.get(gid, {})
+    admin = is_admin(user, guild)
 
     components = []
     components.append(ui.TextDisplay("## 🔔 Mes follows"))
@@ -25,26 +41,30 @@ def build_my_follows(user: discord.User | discord.Member, guild: discord.Guild) 
         return components
 
     for aid, info in followed:
-        name = info["name"]
-        last = info.get("last_release_name")
-        text = f"**{name}**"
-        if last:
-            text += f"\n-# Dernière sortie : {last}"
-
+        # Bouton unsub à droite
+        unsub = UnsubscribeButton(artist_id=aid, artist_name=info["name"])
         section = ui.Section(
-            ui.TextDisplay(text),
-            accessory=UnsubscribeButton(artist_id=aid, artist_name=name),
+            ui.TextDisplay(_artist_text(info)),
+            accessory=unsub,
         )
         components.append(section)
+
+        # Si admin et pas encore dans la liste rôle → bouton pour ajouter
+        if admin and not info.get("notify_role"):
+            add_btn = AdminAddRoleButton(artist_id=aid, artist_name=info["name"])
+            row = ui.ActionRow(add_btn)
+            # On ajoute un petit texte indicatif
+            components.append(ui.TextDisplay(f"-# ↳ 📌 Ajouter au ping rôle"))
 
     return components
 
 
-def build_server_artists(user: discord.User | discord.Member, guild: discord.Guild) -> list:
-    """Construit les composants pour la page 'Artistes du serveur' (non suivis)."""
+def build_server_artists(user: discord.Member, guild: discord.Guild) -> list:
+    """Page 'Artistes du serveur' — artistes non suivis par l'utilisateur."""
     gid = str(guild.id)
     uid = user.id
     guild_data = tracked.get(gid, {})
+    admin = is_admin(user, guild)
 
     components = []
     components.append(ui.TextDisplay("## 📋 Artistes du serveur"))
@@ -60,15 +80,42 @@ def build_server_artists(user: discord.User | discord.Member, guild: discord.Gui
         return components
 
     for aid, info in not_followed:
-        name = info["name"]
-        last = info.get("last_release_name")
-        text = f"**{name}**"
-        if last:
-            text += f"\n-# Dernière sortie : {last}"
-
+        sub = SubscribeButton(artist_id=aid, artist_name=info["name"])
         section = ui.Section(
-            ui.TextDisplay(text),
-            accessory=SubscribeButton(artist_id=aid, artist_name=name),
+            ui.TextDisplay(_artist_text(info)),
+            accessory=sub,
+        )
+        components.append(section)
+
+        if admin and not info.get("notify_role"):
+            components.append(ui.TextDisplay(f"-# ↳ 📌 Ajouter au ping rôle"))
+
+    return components
+
+
+def build_admin_role_list(user: discord.Member, guild: discord.Guild) -> list:
+    """Page admin — artistes avec notify_role activé."""
+    gid = str(guild.id)
+    guild_data = tracked.get(gid, {})
+
+    components = []
+    components.append(ui.TextDisplay("## ⚙️ Liste du rôle générique"))
+    components.append(ui.Separator(visible=True))
+
+    role_artists = [
+        (aid, info) for aid, info in guild_data.items()
+        if info.get("notify_role")
+    ]
+
+    if not role_artists:
+        components.append(ui.TextDisplay("*Aucun artiste n'a le ping rôle activé.*"))
+        return components
+
+    for aid, info in role_artists:
+        rm_btn = AdminRemoveRoleButton(artist_id=aid, artist_name=info["name"])
+        section = ui.Section(
+            ui.TextDisplay(_artist_text(info)),
+            accessory=rm_btn,
         )
         components.append(section)
 
@@ -76,9 +123,18 @@ def build_server_artists(user: discord.User | discord.Member, guild: discord.Gui
 
 
 def build_confirm_unsub(artist_name: str) -> list:
-    """Construit les composants pour la confirmation de désabonnement."""
+    """Confirmation de désabonnement."""
     return [
-        ui.TextDisplay(f"## ⚠️ Confirmation"),
+        ui.TextDisplay("## ⚠️ Confirmation"),
         ui.Separator(visible=True),
-        ui.TextDisplay(f"Tu veux vraiment te désabonner de **{artist_name}** ?"),
+        ui.TextDisplay(f"Te désabonner de **{artist_name}** ?"),
+    ]
+
+
+def build_confirm_admin_remove(artist_name: str) -> list:
+    """Confirmation de retrait du ping rôle."""
+    return [
+        ui.TextDisplay("## ⚠️ Confirmation"),
+        ui.Separator(visible=True),
+        ui.TextDisplay(f"Retirer **{artist_name}** de la liste du rôle ?"),
     ]
