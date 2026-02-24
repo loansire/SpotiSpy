@@ -41,20 +41,11 @@ def build_my_follows(user: discord.Member, guild: discord.Guild) -> list:
         return components
 
     for aid, info in followed:
-        # Bouton unsub à droite
-        unsub = UnsubscribeButton(artist_id=aid, artist_name=info["name"])
-        section = ui.Section(
-            ui.TextDisplay(_artist_text(info)),
-            accessory=unsub,
-        )
-        components.append(section)
-
-        # Si admin et pas encore dans la liste rôle → bouton pour ajouter
+        components.append(ui.TextDisplay(_artist_text(info)))
+        buttons = [UnsubscribeButton(artist_id=aid, artist_name=info["name"])]
         if admin and not info.get("notify_role"):
-            add_btn = AdminAddRoleButton(artist_id=aid, artist_name=info["name"])
-            row = ui.ActionRow(add_btn)
-            # On ajoute un petit texte indicatif
-            components.append(ui.TextDisplay(f"-# ↳ 📌 Ajouter au ping rôle"))
+            buttons.append(AdminAddRoleButton(artist_id=aid, artist_name=info["name"]))
+        components.append(ui.ActionRow(*buttons))
 
     return components
 
@@ -80,15 +71,11 @@ def build_server_artists(user: discord.Member, guild: discord.Guild) -> list:
         return components
 
     for aid, info in not_followed:
-        sub = SubscribeButton(artist_id=aid, artist_name=info["name"])
-        section = ui.Section(
-            ui.TextDisplay(_artist_text(info)),
-            accessory=sub,
-        )
-        components.append(section)
-
+        components.append(ui.TextDisplay(_artist_text(info)))
+        buttons = [SubscribeButton(artist_id=aid, artist_name=info["name"])]
         if admin and not info.get("notify_role"):
-            components.append(ui.TextDisplay(f"-# ↳ 📌 Ajouter au ping rôle"))
+            buttons.append(AdminAddRoleButton(artist_id=aid, artist_name=info["name"]))
+        components.append(ui.ActionRow(*buttons))
 
     return components
 
@@ -112,12 +99,8 @@ def build_admin_role_list(user: discord.Member, guild: discord.Guild) -> list:
         return components
 
     for aid, info in role_artists:
-        rm_btn = AdminRemoveRoleButton(artist_id=aid, artist_name=info["name"])
-        section = ui.Section(
-            ui.TextDisplay(_artist_text(info)),
-            accessory=rm_btn,
-        )
-        components.append(section)
+        components.append(ui.TextDisplay(_artist_text(info)))
+        components.append(ui.ActionRow(AdminRemoveRoleButton(artist_id=aid, artist_name=info["name"])))
 
     return components
 
