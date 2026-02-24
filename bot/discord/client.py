@@ -31,11 +31,16 @@ async def before_check():
 # ─── EVENTS ────────────────────────────────────────────────────────────────────
 @bot.event
 async def on_ready():
-    await bot.tree.sync()
-    check_releases.start()
-    total = sum(len(a) for a in tracked.values())
-    log.info(f"Bot connecté en tant que {bot.user} | {len(tracked)} guild(s) | {total} artiste(s) suivis")
+    @bot.event
+    async def on_ready():
+        cmds = bot.tree.get_commands()
+        for cmd in cmds:
+            log.info(f"Commande enregistrée : /{cmd.name}")
 
+        await bot.tree.sync()
+        check_releases.start()
+        total = sum(len(a) for a in tracked.values())
+        log.info(f"Bot connecté en tant que {bot.user} | {len(tracked)} guild(s) | {total} artiste(s) suivis")
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error):
