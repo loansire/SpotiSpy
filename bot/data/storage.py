@@ -30,6 +30,16 @@ def get_guild(guild_id: int) -> dict:
     return tracked[key]
 
 
+def _extract_image(artist: dict) -> str | None:
+    """Extrait la plus petite image de profil d'un artiste Spotify."""
+    images = artist.get("images", [])
+    if not images:
+        return None
+    # Trier par taille croissante, prendre la plus petite (160px en général)
+    sorted_imgs = sorted(images, key=lambda x: x.get("height", 0))
+    return sorted_imgs[0]["url"]
+
+
 def add_artist(guild_id: int, artist: dict, release: dict | None, notify_role: bool, user_id: int | None) -> bool:
     """
     Ajoute un artiste dans un guild ou met à jour notify_role s'il existe déjà.
@@ -38,6 +48,7 @@ def add_artist(guild_id: int, artist: dict, release: dict | None, notify_role: b
     guild_data = get_guild(guild_id)
     aid  = artist["id"]
     name = artist["name"]
+    image = _extract_image(artist)
 
     if aid in guild_data:
         if notify_role and not guild_data[aid].get("notify_role"):
@@ -46,10 +57,15 @@ def add_artist(guild_id: int, artist: dict, release: dict | None, notify_role: b
         if user_id and user_id not in guild_data[aid].setdefault("subscribers", []):
             guild_data[aid]["subscribers"].append(user_id)
             save_data(tracked)
+        # Mettre à jour l'image si absente
+        if image and not guild_data[aid].get("image_url"):
+            guild_data[aid]["image_url"] = image
+            save_data(tracked)
         return False
 
     guild_data[aid] = {
         "name":              name,
+        "image_url":         image,
         "last_release_id":   release["id"] if release else None,
         "last_release_name": release["name"] if release else None,
         "last_release_url":  release["external_urls"]["spotify"] if release else None,
