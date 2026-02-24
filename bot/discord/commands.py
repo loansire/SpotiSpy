@@ -5,6 +5,7 @@ from spotipy.exceptions import SpotifyException
 
 from bot.data.storage import tracked, save_data, add_artist, cleanup_artist
 from bot.spotify.api import get_artist_from_url, get_latest_release
+from bot.ui.list_view import ArtistListView
 from bot.utils.autocomplete import artist_autocomplete, subscribed_autocomplete
 from bot.utils.logger import log
 
@@ -101,14 +102,8 @@ class SpotifyCog(commands.Cog):
             await interaction.response.send_message("📭 Aucun artiste suivi sur ce serveur.", ephemeral=True)
             return
 
-        uid   = interaction.user.id
-        lines = [
-            f"{'🔔' if uid in info.get('subscribers', []) else '•'} **{info['name']}**"
-            for info in guild_data.values()
-        ]
-        embed = discord.Embed(title="🎧 Artistes suivis", description="\n".join(lines), color=0x1DB954)
-        embed.set_footer(text="🔔 = tu es abonné(e)")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        view = ArtistListView(interaction.user, interaction.guild, page="follows")
+        await interaction.response.send_message(view=view, ephemeral=True)
 
     # ── /latest ────────────────────────────────────────────────────────
     @app_commands.command(name="derniere_sortie", description="Afficher la dernière sortie connue d'un artiste suivi")
@@ -121,7 +116,7 @@ class SpotifyCog(commands.Cog):
 
         if not match:
             await interaction.response.send_message(
-                f"❌ **{artiste}** n'est pas dans la liste. Utilise `/liste` pour voir les artistes suivis.",
+                f"❌ **{artiste}** n'est pas dans la liste. Utilise `/list` pour voir les artistes suivis.",
                 ephemeral=True
             )
             return
