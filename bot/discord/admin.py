@@ -28,7 +28,7 @@ class AdminCog(commands.Cog):
         self.bot = bot
 
     # ── /admin-follow ──────────────────────────────────────────────────
-    @app_commands.command(name="admin-follow", description="[Admin] Ajouter un artiste avec notification rôle")
+    @app_commands.command(name="admin_follow", description="[Admin] Ajouter un artiste avec notification rôle")
     @app_commands.describe(url="Lien de la page Spotify de l'artiste")
     @has_admin_role()
     async def admin_follow(self, interaction: discord.Interaction, url: str):
@@ -77,7 +77,7 @@ class AdminCog(commands.Cog):
         await interaction.followup.send(f"✅ **{name}** — {action} notification rôle !", ephemeral=True)
 
     # ── /admin-unfollow ────────────────────────────────────────────────
-    @app_commands.command(name="admin-unfollow", description="[Admin] Retirer un artiste ou désactiver le ping rôle")
+    @app_commands.command(name="admin_unfollow", description="[Admin] Retirer un artiste ou désactiver le ping rôle")
     @app_commands.describe(
         artiste="Nom de l'artiste",
         force="Supprimer complètement l'artiste (même s'il a des abonnés)"
