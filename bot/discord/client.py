@@ -38,7 +38,7 @@ async def on_ready():
     synced = await bot.tree.sync()
     log.info(f"Sync terminé : {len(synced)} commande(s) synchronisées")
 
-    # check_releases.start()
+    check_releases.start()
     total = sum(len(a) for a in tracked.values())
     log.info(f"Bot connecté en tant que {bot.user} | {len(tracked)} guild(s) | {total} artiste(s) suivis")
 
