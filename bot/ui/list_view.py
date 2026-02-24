@@ -1,249 +1,142 @@
 import discord
 from discord import ui
 
-from bot.config import ADMIN_ROLE_ID
-from bot.data.storage import tracked, save_data, cleanup_artist
-from bot.utils.logger import log
+from bot.ui.list_builder import (
+    build_my_follows,
+    build_server_artists,
+    build_admin_role_list,
+    build_confirm_unsub,
+    build_confirm_admin_remove,
+)
+from bot.ui.list_buttons import (
+    SwitchPageButton,
+    ConfirmYesButton,
+    ConfirmNoButton,
+    ConfirmAdminRemoveYes,
+    ConfirmAdminRemoveNo,
+    is_admin,
+)
 
 
-# ── Boutons utilisateur ────────────────────────────────────────────────
+class ArtistListView(ui.LayoutView):
+    """Vue principale avec pagination : follows / server / admin."""
+
+    def __init__(self, user: discord.Member, guild: discord.Guild, page: str = "follows"):
+        super().__init__(timeout=120)
+        self.user = user
+        self.page = page
+        self.message: discord.Message | None = None
+
+        admin = is_admin(user, guild)
+
+        # Construire le contenu
+        if page == "follows":
+            items = build_my_follows(user, guild)
+        elif page == "server":
+            items = build_server_artists(user, guild)
+        elif page == "admin" and admin:
+            items = build_admin_role_list(user, guild)
+        else:
+            items = build_my_follows(user, guild)
+            page = "follows"
+
+        # Container principal
+        container = ui.Container(*items, accent_color=0x1DB954)
+        self.add_item(container)
+
+        # Boutons de navigation (toujours les 3, grisé si page active)
+        nav_follows = SwitchPageButton(target_page="follows", disabled=(page == "follows"))
+        nav_server = SwitchPageButton(target_page="server", disabled=(page == "server"))
+
+        if admin:
+            nav_admin = SwitchPageButton(target_page="admin", disabled=(page == "admin"))
+            row = ui.ActionRow(nav_follows, nav_server, nav_admin)
+        else:
+            row = ui.ActionRow(nav_follows, nav_server)
+
+        self.add_item(row)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message(
+                "🚫 Cette interface ne t'appartient pas.", ephemeral=True
+            )
+            return False
+        return True
+
+    async def on_timeout(self):
+        self.stop()
 
 
-class SubscribeButton(ui.Button):
-    """Bouton 🔔 pour s'abonner à un artiste."""
+class ConfirmUnsubView(ui.LayoutView):
+    """Confirmation de désabonnement utilisateur."""
 
-    def __init__(self, artist_id: str, artist_name: str):
-        super().__init__(
-            emoji="🔔",
-            style=discord.ButtonStyle.success,
-            custom_id=f"sub:{artist_id}",
-        )
+    def __init__(
+        self,
+        user: discord.Member,
+        guild: discord.Guild,
+        artist_id: str,
+        artist_name: str,
+        parent_page: str,
+    ):
+        super().__init__(timeout=30)
+        self.user = user
+        self.guild = guild
         self.artist_id = artist_id
         self.artist_name = artist_name
+        self.parent_page = parent_page
+        self.message: discord.Message | None = None
 
-    async def callback(self, interaction: discord.Interaction):
-        uid = interaction.user.id
-        gid = str(interaction.guild_id)
-        guild_data = tracked.get(gid, {})
-        info = guild_data.get(self.artist_id)
+        items = build_confirm_unsub(artist_name)
+        container = ui.Container(*items, accent_color=0xFF0000)
+        self.add_item(container)
 
-        if not info:
+        row = ui.ActionRow(ConfirmYesButton(), ConfirmNoButton())
+        self.add_item(row)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user.id:
             await interaction.response.send_message(
-                f"❌ **{self.artist_name}** n'existe plus dans la liste.", ephemeral=True
+                "🚫 Cette interface ne t'appartient pas.", ephemeral=True
             )
-            return
+            return False
+        return True
 
-        subs = info.setdefault("subscribers", [])
-        if uid in subs:
-            await interaction.response.send_message(
-                f"⚠️ Tu es déjà abonné(e) à **{self.artist_name}**.", ephemeral=True
-            )
-            return
-
-        subs.append(uid)
-        save_data(tracked)
-        log.info(f"[Guild {gid}] Abonné ajouté via UI : {interaction.user} → {self.artist_name}")
-
-        from bot.ui.list_view import ArtistListView
-        view = ArtistListView(interaction.user, interaction.guild, page=self.view.page)
-        await interaction.response.edit_message(view=view)
+    async def on_timeout(self):
+        self.stop()
 
 
-class UnsubscribeButton(ui.Button):
-    """Bouton ❌ pour se désabonner (ouvre la confirmation)."""
+class ConfirmAdminRemoveView(ui.LayoutView):
+    """Confirmation de retrait du ping rôle (admin)."""
 
-    def __init__(self, artist_id: str, artist_name: str):
-        super().__init__(
-            emoji="❌",
-            style=discord.ButtonStyle.secondary,
-            custom_id=f"unsub:{artist_id}",
-        )
+    def __init__(
+        self,
+        user: discord.Member,
+        guild: discord.Guild,
+        artist_id: str,
+        artist_name: str,
+    ):
+        super().__init__(timeout=30)
+        self.user = user
+        self.guild = guild
         self.artist_id = artist_id
         self.artist_name = artist_name
+        self.message: discord.Message | None = None
 
-    async def callback(self, interaction: discord.Interaction):
-        from bot.ui.list_view import ConfirmUnsubView
-        view = ConfirmUnsubView(
-            user=interaction.user,
-            guild=interaction.guild,
-            artist_id=self.artist_id,
-            artist_name=self.artist_name,
-            parent_page=self.view.page,
-        )
-        await interaction.response.edit_message(view=view)
+        items = build_confirm_admin_remove(artist_name)
+        container = ui.Container(*items, accent_color=0xFF0000)
+        self.add_item(container)
 
+        row = ui.ActionRow(ConfirmAdminRemoveYes(), ConfirmAdminRemoveNo())
+        self.add_item(row)
 
-class ConfirmYesButton(ui.Button):
-    """Confirme le désabonnement."""
-
-    def __init__(self):
-        super().__init__(label="Confirmer", emoji="✅", style=discord.ButtonStyle.danger)
-
-    async def callback(self, interaction: discord.Interaction):
-        view: "ConfirmUnsubView" = self.view
-        uid = interaction.user.id
-        gid = str(interaction.guild_id)
-        guild_data = tracked.get(gid, {})
-        info = guild_data.get(view.artist_id)
-
-        if info:
-            subs = info.get("subscribers", [])
-            if uid in subs:
-                subs.remove(uid)
-                save_data(tracked)
-                log.info(f"[Guild {gid}] Abonné retiré via UI : {interaction.user} → {view.artist_name}")
-                cleanup_artist(int(gid), view.artist_id)
-
-        from bot.ui.list_view import ArtistListView
-        new_view = ArtistListView(interaction.user, interaction.guild, page=view.parent_page)
-        await interaction.response.edit_message(view=new_view)
-
-
-class ConfirmNoButton(ui.Button):
-    """Annule le désabonnement."""
-
-    def __init__(self):
-        super().__init__(label="Annuler", emoji="↩️", style=discord.ButtonStyle.secondary)
-
-    async def callback(self, interaction: discord.Interaction):
-        view: "ConfirmUnsubView" = self.view
-        from bot.ui.list_view import ArtistListView
-        new_view = ArtistListView(interaction.user, interaction.guild, page=view.parent_page)
-        await interaction.response.edit_message(view=new_view)
-
-
-# ── Bouton navigation ─────────────────────────────────────────────────
-
-
-class SwitchPageButton(ui.Button):
-    """Bouton pour changer de page."""
-
-    def __init__(self, target_page: str, disabled: bool = False):
-        labels = {
-            "server":  ("📋", "Serveur"),
-            "follows": ("🔔", "Mes follows"),
-            "admin":   ("⚙️", "Liste Générale (admin)"),
-        }
-        emoji, label = labels.get(target_page, ("❓", target_page))
-        super().__init__(
-            label=label,
-            emoji=emoji,
-            style=discord.ButtonStyle.primary,
-            disabled=disabled,
-        )
-        self.target_page = target_page
-
-    async def callback(self, interaction: discord.Interaction):
-        from bot.ui.list_view import ArtistListView
-        view = ArtistListView(interaction.user, interaction.guild, page=self.target_page)
-        await interaction.response.edit_message(view=view)
-
-
-# ── Boutons admin ──────────────────────────────────────────────────────
-
-
-class AdminAddRoleButton(ui.Button):
-    """Bouton ⚙️ pour ajouter un artiste à la liste du rôle générique."""
-
-    def __init__(self, artist_id: str, artist_name: str):
-        super().__init__(
-            emoji="📌",
-            style=discord.ButtonStyle.primary,
-            custom_id=f"admin_add:{artist_id}",
-        )
-        self.artist_id = artist_id
-        self.artist_name = artist_name
-
-    async def callback(self, interaction: discord.Interaction):
-        gid = str(interaction.guild_id)
-        guild_data = tracked.get(gid, {})
-        info = guild_data.get(self.artist_id)
-
-        if not info:
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user.id:
             await interaction.response.send_message(
-                f"❌ **{self.artist_name}** n'existe plus.", ephemeral=True
+                "🚫 Cette interface ne t'appartient pas.", ephemeral=True
             )
-            return
+            return False
+        return True
 
-        if info.get("notify_role"):
-            await interaction.response.send_message(
-                f"⚠️ **{self.artist_name}** a déjà le ping rôle.", ephemeral=True
-            )
-            return
-
-        info["notify_role"] = True
-        save_data(tracked)
-        log.info(f"[Guild {gid}] Ping rôle activé via UI : {self.artist_name}")
-
-        from bot.ui.list_view import ArtistListView
-        view = ArtistListView(interaction.user, interaction.guild, page=self.view.page)
-        await interaction.response.edit_message(view=view)
-
-
-class AdminRemoveRoleButton(ui.Button):
-    """Bouton pour retirer un artiste de la liste du rôle générique."""
-
-    def __init__(self, artist_id: str, artist_name: str):
-        super().__init__(
-            emoji="❌",
-            style=discord.ButtonStyle.secondary,
-            custom_id=f"admin_rm:{artist_id}",
-        )
-        self.artist_id = artist_id
-        self.artist_name = artist_name
-
-    async def callback(self, interaction: discord.Interaction):
-        from bot.ui.list_view import ConfirmAdminRemoveView
-        view = ConfirmAdminRemoveView(
-            user=interaction.user,
-            guild=interaction.guild,
-            artist_id=self.artist_id,
-            artist_name=self.artist_name,
-        )
-        await interaction.response.edit_message(view=view)
-
-
-class ConfirmAdminRemoveYes(ui.Button):
-    """Confirme le retrait du ping rôle."""
-
-    def __init__(self):
-        super().__init__(label="Confirmer", emoji="✅", style=discord.ButtonStyle.danger)
-
-    async def callback(self, interaction: discord.Interaction):
-        view: "ConfirmAdminRemoveView" = self.view
-        gid = str(interaction.guild_id)
-        guild_data = tracked.get(gid, {})
-        info = guild_data.get(view.artist_id)
-
-        if info:
-            info["notify_role"] = False
-            save_data(tracked)
-            log.info(f"[Guild {gid}] Ping rôle désactivé via UI : {view.artist_name}")
-            cleanup_artist(int(gid), view.artist_id)
-
-        from bot.ui.list_view import ArtistListView
-        new_view = ArtistListView(interaction.user, interaction.guild, page="admin")
-        await interaction.response.edit_message(view=new_view)
-
-
-class ConfirmAdminRemoveNo(ui.Button):
-    """Annule le retrait du ping rôle."""
-
-    def __init__(self):
-        super().__init__(label="Annuler", emoji="↩️", style=discord.ButtonStyle.secondary)
-
-    async def callback(self, interaction: discord.Interaction):
-        from bot.ui.list_view import ArtistListView
-        new_view = ArtistListView(interaction.user, interaction.guild, page="admin")
-        await interaction.response.edit_message(view=new_view)
-
-
-# ── Helpers ────────────────────────────────────────────────────────────
-
-
-def is_admin(user: discord.Member, guild: discord.Guild) -> bool:
-    """Vérifie si l'utilisateur a le rôle admin."""
-    role = guild.get_role(ADMIN_ROLE_ID)
-    if not role:
-        return False
-    return role in user.roles
+    async def on_timeout(self):
+        self.stop()
