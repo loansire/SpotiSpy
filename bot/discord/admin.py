@@ -6,6 +6,7 @@ from spotipy.exceptions import SpotifyException
 from bot.config import ADMIN_ROLE_ID
 from bot.data.storage import tracked, save_data, add_artist, cleanup_artist
 from bot.spotify.api import get_artist_from_url, get_latest_release
+from bot.spotify.rate_limit import is_rate_limited, set_rate_limit, format_remaining
 from bot.spotify.checker import do_check
 from bot.utils.autocomplete import artist_autocomplete
 from bot.utils.logger import log
@@ -42,12 +43,29 @@ class AdminCog(commands.Cog):
             )
             return
 
+        # Vérifier le rate limit avant tout appel API
+        if is_rate_limited():
+            await interaction.followup.send(
+                f"⏳ L'API Spotify est temporairement indisponible (rate limit).\n"
+                f"Réessaie dans **{format_remaining()}**.",
+                ephemeral=True
+            )
+            return
+
         try:
             artist = await get_artist_from_url(url)
             if not artist:
                 await interaction.followup.send("❌ Impossible de récupérer l'artiste.", ephemeral=True)
                 return
         except SpotifyException as e:
+            if e.http_status == 429:
+                retry_after = int(e.headers.get("Retry-After", 3600)) if e.headers else 3600
+                set_rate_limit(retry_after)
+                await interaction.followup.send(
+                    f"⏳ Rate limit Spotify atteint. Réessaie dans **{format_remaining()}**.",
+                    ephemeral=True
+                )
+                return
             log.error(f"/admin-follow SpotifyException | HTTP {e.http_status} | {e.msg}")
             await interaction.followup.send(f"❌ Erreur Spotify (HTTP {e.http_status}) : {e.msg}", ephemeral=True)
             return
@@ -67,6 +85,12 @@ class AdminCog(commands.Cog):
 
         try:
             release = await get_latest_release(aid)
+        except SpotifyException as e:
+            if e.http_status == 429:
+                retry_after = int(e.headers.get("Retry-After", 3600)) if e.headers else 3600
+                set_rate_limit(retry_after)
+            log.warning(f"/admin-follow Impossible de récupérer la dernière sortie de '{name}' | {e}")
+            release = None
         except Exception as e:
             log.warning(f"/admin-follow Impossible de récupérer la dernière sortie de '{name}' | {e}")
             release = None

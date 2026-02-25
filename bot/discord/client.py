@@ -17,6 +17,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 @tasks.loop(hours=CHECK_INTERVAL_H)
 async def check_releases():
     log.info("Début du cycle de vérification...")
+    # do_check attend automatiquement si rate-limité (avec pings dans les logs)
     await do_check(bot)
     log.info("Cycle terminé.")
 

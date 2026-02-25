@@ -5,6 +5,7 @@ from spotipy.exceptions import SpotifyException
 from bot.config import ANNOUNCE_CHANNEL, NOTIFY_ROLE_ID, SLEEP_THRESHOLD
 from bot.data.storage import tracked, save_data
 from bot.spotify.api import get_latest_release
+from bot.spotify.rate_limit import is_rate_limited, set_rate_limit, wait_for_rate_limit, format_remaining
 from bot.utils.logger import log
 
 
@@ -41,6 +42,11 @@ async def check_guild(guild: discord.Guild, filter_name: str = None):
     log.info(f"[Guild {gid}] Vérification de {len(targets)} artiste(s){'  — délai 1s activé' if use_sleep else ''}...")
 
     for artist_id, info in list(targets.items()):
+        # Vérifier le rate limit avant chaque requête
+        if is_rate_limited():
+            log.warning(f"[Guild {gid}] Rate limit actif, arrêt du cycle (encore {format_remaining()})")
+            return
+
         try:
             release = await get_latest_release(artist_id)
             if not release:
@@ -70,7 +76,8 @@ async def check_guild(guild: discord.Guild, filter_name: str = None):
         except SpotifyException as e:
             if e.http_status == 429:
                 retry_after = int(e.headers.get("Retry-After", 3600)) if e.headers else 3600
-                log.warning(f"Rate limit 429 sur '{info['name']}' — retry dans ~{retry_after}s, cycle abandonné")
+                set_rate_limit(retry_after)
+                log.warning(f"Rate limit 429 sur '{info['name']}' — cycle abandonné")
                 return
             log.error(f"SpotifyException sur '{info['name']}' ({artist_id}) | HTTP {e.http_status} | {e.msg}")
         except Exception as e:
@@ -79,6 +86,9 @@ async def check_guild(guild: discord.Guild, filter_name: str = None):
 
 async def do_check(bot: discord.Client, filter_name: str = None, guild_id: int = None):
     """Point d'entrée principal : vérifie tous les guilds ou un seul."""
+    # Attendre la fin du rate limit si actif (avec pings réguliers)
+    await wait_for_rate_limit()
+
     guild_ids = [guild_id] if guild_id else [int(gid) for gid in tracked.keys()]
 
     for gid in guild_ids:
