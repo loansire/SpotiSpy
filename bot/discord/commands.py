@@ -87,37 +87,6 @@ class SpotifyCog(commands.Cog):
         log.info(f"[Guild {gid}] {'Artiste ajouté' if created else 'Abonné ajouté'} : {interaction.user} → {name}")
         await interaction.followup.send(f"✅ **{name}** — {action} aux alertes !", ephemeral=True)
 
-    # ── /unfollow ──────────────────────────────────────────────────────
-    @app_commands.command(name="unspy", description="Se désabonner des alertes d'un artiste")
-    @app_commands.describe(artiste="Nom de l'artiste")
-    @app_commands.autocomplete(artiste=subscribed_autocomplete)
-    async def unfollow(self, interaction: discord.Interaction, artiste: str):
-        uid        = interaction.user.id
-        gid        = interaction.guild_id
-        guild_data = tracked.get(str(gid), {})
-
-        match = next((aid for aid, info in guild_data.items()
-                      if info["name"].lower() == artiste.lower()), None)
-        if not match:
-            await interaction.response.send_message(f"❌ **{artiste}** n'est pas dans la liste.", ephemeral=True)
-            return
-
-        info = guild_data[match]
-        subs = info.get("subscribers", [])
-
-        if uid not in subs:
-            await interaction.response.send_message(
-                f"⚠️ Tu n'es pas abonné(e) à **{info['name']}**.", ephemeral=True
-            )
-            return
-
-        subs.remove(uid)
-        save_data(tracked)
-        log.info(f"[Guild {gid}] Abonné retiré : {interaction.user} → {info['name']}")
-        cleanup_artist(gid, match)
-
-        await interaction.response.send_message(f"✅ Tu es désabonné(e) de **{info['name']}**.", ephemeral=True)
-
     # ── /list ──────────────────────────────────────────────────────────
     @app_commands.command(name="liste", description="Voir les artistes suivis sur ce serveur")
     async def list_artists(self, interaction: discord.Interaction):

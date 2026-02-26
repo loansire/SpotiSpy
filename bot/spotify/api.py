@@ -4,8 +4,6 @@ from functools import partial
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 from spotipy.exceptions import SpotifyException
-import requests
-from requests.adapters import HTTPAdapter
 
 from bot.config import SPOTIFY_CLIENT_ID, SPOTIFY_SECRET
 from bot.utils.logger import log
@@ -17,12 +15,9 @@ sp = spotipy.Spotify(
         client_secret=SPOTIFY_SECRET,
         cache_handler=spotipy.MemoryCacheHandler()
     ),
-    retries=1
+    retries=0,
+    backoff_factor=0
 )
-
-_session = requests.Session()
-_session.mount("https://", HTTPAdapter(max_retries=0))
-sp._session = _session
 
 
 # ─── FONCTIONS SYNCHRONES (exécutées dans un thread) ──────────────────────────
@@ -44,7 +39,6 @@ def _get_artist_from_url(url: str) -> dict | None:
 
 # ─── WRAPPERS ASYNC ───────────────────────────────────────────────────────────
 async def get_latest_release(artist_id: str) -> dict | None:
-    """Récupère la dernière sortie d'un artiste (async)."""
     loop = asyncio.get_event_loop()
     try:
         result = await loop.run_in_executor(None, partial(_get_latest_release, artist_id))
@@ -59,7 +53,6 @@ async def get_latest_release(artist_id: str) -> dict | None:
 
 
 async def get_artist_from_url(url: str) -> dict | None:
-    """Récupère les infos d'un artiste depuis son URL Spotify (async)."""
     loop = asyncio.get_event_loop()
     try:
         result = await loop.run_in_executor(None, partial(_get_artist_from_url, url))
