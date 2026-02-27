@@ -5,7 +5,7 @@ from spotipy.exceptions import SpotifyException
 
 from bot.data.storage import tracked, save_data, add_artist, cleanup_artist
 from bot.spotify.api import get_artist_from_url, get_latest_release
-from bot.spotify.rate_limit import is_rate_limited, set_rate_limit, format_remaining
+from bot.spotify.rate_limit import is_rate_limited, set_rate_limit, extract_retry_after, format_remaining
 from bot.ui.list_view import ArtistListView
 from bot.utils.autocomplete import artist_autocomplete, subscribed_autocomplete
 from bot.utils.logger import log
@@ -44,8 +44,7 @@ class SpotifyCog(commands.Cog):
                 return
         except SpotifyException as e:
             if e.http_status == 429:
-                retry_after = int(e.headers.get("Retry-After", 3600)) if e.headers else 3600
-                set_rate_limit(retry_after)
+                set_rate_limit(extract_retry_after(e))
                 await interaction.followup.send(
                     f"⏳ Rate limit Spotify atteint. Réessaie dans **{format_remaining()}**.",
                     ephemeral=True
@@ -74,8 +73,7 @@ class SpotifyCog(commands.Cog):
             release = await get_latest_release(aid)
         except SpotifyException as e:
             if e.http_status == 429:
-                retry_after = int(e.headers.get("Retry-After", 3600)) if e.headers else 3600
-                set_rate_limit(retry_after)
+                set_rate_limit(extract_retry_after(e))
             log.warning(f"`/spy` Impossible de récupérer la dernière sortie de '{name}' | {e}")
             release = None
         except Exception as e:

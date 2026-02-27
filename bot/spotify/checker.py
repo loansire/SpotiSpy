@@ -5,7 +5,7 @@ from spotipy.exceptions import SpotifyException
 from bot.config import ANNOUNCE_CHANNEL, NOTIFY_ROLE_ID, SLEEP_THRESHOLD
 from bot.data.storage import tracked, save_data
 from bot.spotify.api import get_latest_release
-from bot.spotify.rate_limit import is_rate_limited, set_rate_limit, format_remaining
+from bot.spotify.rate_limit import is_rate_limited, set_rate_limit, extract_retry_after, format_remaining
 from bot.utils.logger import log
 
 
@@ -72,8 +72,7 @@ async def check_guild(guild: discord.Guild, filter_name: str = None):
 
         except SpotifyException as e:
             if e.http_status == 429:
-                retry_after = int(e.headers.get("Retry-After", 3600)) if e.headers else 3600
-                set_rate_limit(retry_after)
+                set_rate_limit(extract_retry_after(e))
                 log.warning(f"Rate limit 429 sur '{info['name']}' — cycle abandonné")
                 return
             log.error(f"SpotifyException sur '{info['name']}' ({artist_id}) | HTTP {e.http_status} | {e.msg}")
