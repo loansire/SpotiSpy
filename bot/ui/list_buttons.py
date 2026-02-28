@@ -45,7 +45,7 @@ class SubscribeButton(ui.Button):
         log.info(f"[Guild {gid}] Abonné ajouté via UI : {interaction.user} → {self.artist_name}")
 
         from bot.ui.list_view import ArtistListView
-        view = ArtistListView(interaction.user, interaction.guild, page=self.view.page)
+        view = ArtistListView(interaction.user, interaction.guild, page=self.view.page, page_index=self.view.page_index)
         await interaction.response.edit_message(view=view)
 
 
@@ -69,6 +69,7 @@ class UnsubscribeButton(ui.Button):
             artist_id=self.artist_id,
             artist_name=self.artist_name,
             parent_page=self.view.page,
+            parent_page_index=self.view.page_index,
         )
         await interaction.response.edit_message(view=view)
 
@@ -95,7 +96,7 @@ class ConfirmYesButton(ui.Button):
                 cleanup_artist(int(gid), view.artist_id)
 
         from bot.ui.list_view import ArtistListView
-        new_view = ArtistListView(interaction.user, interaction.guild, page=view.parent_page)
+        new_view = ArtistListView(interaction.user, interaction.guild, page=view.parent_page, page_index=view.parent_page_index)
         await interaction.response.edit_message(view=new_view)
 
 
@@ -108,15 +109,15 @@ class ConfirmNoButton(ui.Button):
     async def callback(self, interaction: discord.Interaction):
         view: "ConfirmUnsubView" = self.view
         from bot.ui.list_view import ArtistListView
-        new_view = ArtistListView(interaction.user, interaction.guild, page=view.parent_page)
+        new_view = ArtistListView(interaction.user, interaction.guild, page=view.parent_page, page_index=view.parent_page_index)
         await interaction.response.edit_message(view=new_view)
 
 
-# ── Bouton navigation ─────────────────────────────────────────────────
+# ── Boutons navigation de page (onglets) ───────────────────────────────
 
 
 class SwitchPageButton(ui.Button):
-    """Bouton pour changer de page."""
+    """Bouton pour changer de page (onglet)."""
 
     def __init__(self, target_page: str, disabled: bool = False):
         labels = {
@@ -135,15 +136,74 @@ class SwitchPageButton(ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         from bot.ui.list_view import ArtistListView
-        view = ArtistListView(interaction.user, interaction.guild, page=self.target_page)
+        # Changement d'onglet → retour à la page 0
+        view = ArtistListView(interaction.user, interaction.guild, page=self.target_page, page_index=0)
         await interaction.response.edit_message(view=view)
+
+
+# ── Boutons de pagination (flèches) ────────────────────────────────────
+
+
+class PrevPageButton(ui.Button):
+    """Bouton ◀ pour aller à la page précédente."""
+
+    def __init__(self, current_page_index: int, disabled: bool = False):
+        super().__init__(
+            emoji="◀",
+            style=discord.ButtonStyle.secondary,
+            disabled=disabled,
+        )
+        self.current_page_index = current_page_index
+
+    async def callback(self, interaction: discord.Interaction):
+        from bot.ui.list_view import ArtistListView
+        view = ArtistListView(
+            interaction.user,
+            interaction.guild,
+            page=self.view.page,
+            page_index=self.current_page_index - 1,
+        )
+        await interaction.response.edit_message(view=view)
+
+
+class NextPageButton(ui.Button):
+    """Bouton ▶ pour aller à la page suivante."""
+
+    def __init__(self, current_page_index: int, disabled: bool = False):
+        super().__init__(
+            emoji="▶",
+            style=discord.ButtonStyle.secondary,
+            disabled=disabled,
+        )
+        self.current_page_index = current_page_index
+
+    async def callback(self, interaction: discord.Interaction):
+        from bot.ui.list_view import ArtistListView
+        view = ArtistListView(
+            interaction.user,
+            interaction.guild,
+            page=self.view.page,
+            page_index=self.current_page_index + 1,
+        )
+        await interaction.response.edit_message(view=view)
+
+
+class PageCounterButton(ui.Button):
+    """Bouton désactivé affichant X/Y au centre."""
+
+    def __init__(self, current: int, total: int):
+        super().__init__(
+            label=f"{current}/{total}",
+            style=discord.ButtonStyle.secondary,
+            disabled=True,
+        )
 
 
 # ── Boutons admin ──────────────────────────────────────────────────────
 
 
 class AdminAddRoleButton(ui.Button):
-    """Bouton ⚙️ pour ajouter un artiste à la liste du rôle générique."""
+    """Bouton 📌 pour ajouter un artiste à la liste du rôle générique."""
 
     def __init__(self, artist_id: str, artist_name: str):
         super().__init__(
@@ -176,7 +236,7 @@ class AdminAddRoleButton(ui.Button):
         log.info(f"[Guild {gid}] Ping rôle activé via UI : {self.artist_name}")
 
         from bot.ui.list_view import ArtistListView
-        view = ArtistListView(interaction.user, interaction.guild, page=self.view.page)
+        view = ArtistListView(interaction.user, interaction.guild, page=self.view.page, page_index=self.view.page_index)
         await interaction.response.edit_message(view=view)
 
 
@@ -199,6 +259,7 @@ class AdminRemoveRoleButton(ui.Button):
             guild=interaction.guild,
             artist_id=self.artist_id,
             artist_name=self.artist_name,
+            parent_page_index=self.view.page_index,
         )
         await interaction.response.edit_message(view=view)
 
@@ -222,7 +283,7 @@ class ConfirmAdminRemoveYes(ui.Button):
             cleanup_artist(int(gid), view.artist_id)
 
         from bot.ui.list_view import ArtistListView
-        new_view = ArtistListView(interaction.user, interaction.guild, page="admin")
+        new_view = ArtistListView(interaction.user, interaction.guild, page="admin", page_index=view.parent_page_index)
         await interaction.response.edit_message(view=new_view)
 
 
@@ -233,8 +294,9 @@ class ConfirmAdminRemoveNo(ui.Button):
         super().__init__(label="Annuler", emoji="↩️", style=discord.ButtonStyle.secondary)
 
     async def callback(self, interaction: discord.Interaction):
+        view: "ConfirmAdminRemoveView" = self.view
         from bot.ui.list_view import ArtistListView
-        new_view = ArtistListView(interaction.user, interaction.guild, page="admin")
+        new_view = ArtistListView(interaction.user, interaction.guild, page="admin", page_index=view.parent_page_index)
         await interaction.response.edit_message(view=new_view)
 
 
