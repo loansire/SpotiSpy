@@ -4,8 +4,9 @@ from discord.ext import commands
 from spotipy.exceptions import SpotifyException
 
 from bot.data.storage import tracked, save_data, add_artist, cleanup_artist
+from bot.data.queue import add_to_queue, is_duplicate
 from bot.spotify.api import get_artist_from_url, get_latest_release
-from bot.spotify.rate_limit import is_rate_limited, set_rate_limit, extract_retry_after, format_remaining
+from bot.spotify.rate_limit import is_rate_limited, activate_rate_limit, extract_retry_after, format_remaining
 from bot.ui.list_view import ArtistListView
 from bot.utils.autocomplete import artist_autocomplete, subscribed_autocomplete
 from bot.utils.logger import log
@@ -28,15 +29,28 @@ class SpotifyCog(commands.Cog):
             )
             return
 
-        # Vérifier le rate limit avant tout appel API
+        # ── Rate limit actif → mise en file d'attente ──────────────────
         if is_rate_limited():
+            gid = interaction.guild_id
+            uid = interaction.user.id
+
+            if is_duplicate(gid, url):
+                await interaction.followup.send(
+                    "⚠️ Cette demande est déjà en file d'attente.",
+                    ephemeral=True
+                )
+                return
+
+            add_to_queue(gid, uid, url)
             await interaction.followup.send(
-                f"⏳ L'API Spotify est temporairement indisponible (rate limit).\n"
-                f"Réessaie dans **{format_remaining()}**.",
+                f"⏳ L'API Spotify est temporairement indisponible. "
+                f"Ta demande sera traitée automatiquement. "
+                f"Temps restant estimé : **{format_remaining()}**.",
                 ephemeral=True
             )
             return
 
+        # ── Fonctionnement normal ──────────────────────────────────────
         try:
             artist = await get_artist_from_url(url)
             if not artist:
@@ -44,9 +58,13 @@ class SpotifyCog(commands.Cog):
                 return
         except SpotifyException as e:
             if e.http_status == 429:
-                set_rate_limit(extract_retry_after(e))
+                retry_after = extract_retry_after(e)
+                activate_rate_limit(retry_after, self.bot)
+                add_to_queue(interaction.guild_id, interaction.user.id, url)
                 await interaction.followup.send(
-                    f"⏳ Rate limit Spotify atteint. Réessaie dans **{format_remaining()}**.",
+                    f"⏳ L'API Spotify est temporairement indisponible. "
+                    f"Ta demande sera traitée automatiquement. "
+                    f"Temps restant estimé : **{format_remaining()}**.",
                     ephemeral=True
                 )
                 return
@@ -73,7 +91,8 @@ class SpotifyCog(commands.Cog):
             release = await get_latest_release(aid)
         except SpotifyException as e:
             if e.http_status == 429:
-                set_rate_limit(extract_retry_after(e))
+                retry_after = extract_retry_after(e)
+                activate_rate_limit(retry_after, self.bot)
             log.warning(f"`/spy` Impossible de récupérer la dernière sortie de '{name}' | {e}")
             release = None
         except Exception as e:

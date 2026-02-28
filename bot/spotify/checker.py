@@ -5,7 +5,7 @@ from spotipy.exceptions import SpotifyException
 from bot.config import ANNOUNCE_CHANNEL, NOTIFY_ROLE_ID, SLEEP_THRESHOLD
 from bot.data.storage import tracked, save_data
 from bot.spotify.api import get_latest_release
-from bot.spotify.rate_limit import is_rate_limited, set_rate_limit, extract_retry_after, format_remaining
+from bot.spotify.rate_limit import is_rate_limited, activate_rate_limit, extract_retry_after, format_remaining
 from bot.utils.logger import log
 
 
@@ -22,7 +22,7 @@ def build_mentions(info: dict, guild: discord.Guild) -> str:
     return " ".join(mentions) if mentions else ""
 
 
-async def check_guild(guild: discord.Guild, filter_name: str = None):
+async def check_guild(guild: discord.Guild, bot: discord.Client, filter_name: str = None):
     gid        = str(guild.id)
     guild_data = tracked.get(gid, {})
     channel    = guild.get_channel(ANNOUNCE_CHANNEL)
@@ -72,8 +72,9 @@ async def check_guild(guild: discord.Guild, filter_name: str = None):
 
         except SpotifyException as e:
             if e.http_status == 429:
-                set_rate_limit(extract_retry_after(e))
-                log.warning(f"Rate limit 429 sur '{info['name']}' — cycle abandonné")
+                retry_after = extract_retry_after(e)
+                activate_rate_limit(retry_after, bot)
+                log.warning(f"429 sur '{info['name']}' — stop total, reprise dans {format_remaining()}")
                 return
             log.error(f"SpotifyException sur '{info['name']}' ({artist_id}) | HTTP {e.http_status} | {e.msg}")
         except Exception as e:
@@ -81,7 +82,6 @@ async def check_guild(guild: discord.Guild, filter_name: str = None):
 
 
 async def do_check(bot: discord.Client, filter_name: str = None, guild_id: int = None):
-    # Skip immédiat si rate-limité — la _ping_loop gère les logs de progression
     if is_rate_limited():
         log.info(f"⏭️ Cycle skippé — rate limit encore actif ({format_remaining()})")
         return
@@ -89,8 +89,12 @@ async def do_check(bot: discord.Client, filter_name: str = None, guild_id: int =
     guild_ids = [guild_id] if guild_id else [int(gid) for gid in tracked.keys()]
 
     for gid in guild_ids:
+        # Stop immédiat si un 429 a été déclenché pendant ce cycle
+        if is_rate_limited():
+            return
+
         guild = bot.get_guild(gid)
         if not guild:
             log.warning(f"Guild introuvable (ID={gid}), skipped")
             continue
-        await check_guild(guild, filter_name=filter_name)
+        await check_guild(guild, bot, filter_name=filter_name)

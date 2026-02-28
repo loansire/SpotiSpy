@@ -5,6 +5,7 @@ from discord.ext import commands, tasks
 
 from bot.config import CHECK_INTERVAL_H, STARTUP_DELAY_S
 from bot.data.storage import tracked
+from bot.data.queue import queue
 from bot.spotify.checker import do_check
 from bot.utils.logger import log
 
@@ -17,7 +18,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 @tasks.loop(hours=CHECK_INTERVAL_H)
 async def check_releases():
     log.info("Début du cycle de vérification...")
-    # do_check attend automatiquement si rate-limité (avec pings dans les logs)
     await do_check(bot)
     log.info("Cycle terminé.")
 
@@ -32,12 +32,21 @@ async def before_check():
 # ─── EVENTS ────────────────────────────────────────────────────────────────────
 @bot.event
 async def on_ready():
+    # Exposer la task loop pour que rate_limit.py puisse la stop/restart
+    bot._check_releases_task = check_releases
+
     cmds = bot.tree.get_commands()
     for cmd in cmds:
         log.info(f"Commande enregistrée : /{cmd.name}")
 
     synced = await bot.tree.sync()
     log.info(f"Sync terminé : {len(synced)} commande(s) synchronisées")
+
+    # Traiter la file résiduelle (crash précédent) avant de lancer le cycle
+    if queue:
+        log.info(f"📋 {len(queue)} requête(s) en file d'attente au démarrage, traitement...")
+        from bot.spotify.rate_limit import _process_queue
+        await _process_queue()
 
     check_releases.start()
     total = sum(len(a) for a in tracked.values())
