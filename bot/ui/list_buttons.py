@@ -1,7 +1,6 @@
 import discord
 from discord import ui
 
-from bot.config import ADMIN_ROLE_ID
 from bot.data.storage import tracked, save_data, cleanup_artist
 from bot.utils.logger import log
 
@@ -123,7 +122,6 @@ class SwitchPageButton(ui.Button):
         labels = {
             "server":  ("📋", "Serveur"),
             "follows": ("🔔", "Mes follows"),
-            "admin":   ("⚙️", "Liste rôle"),
         }
         emoji, label = labels.get(target_page, ("❓", target_page))
         super().__init__(
@@ -197,115 +195,3 @@ class PageCounterButton(ui.Button):
             style=discord.ButtonStyle.secondary,
             disabled=True,
         )
-
-
-# ── Boutons admin ──────────────────────────────────────────────────────
-
-
-class AdminAddRoleButton(ui.Button):
-    """Bouton 📌 pour ajouter un artiste à la liste du rôle générique."""
-
-    def __init__(self, artist_id: str, artist_name: str):
-        super().__init__(
-            emoji="📌",
-            style=discord.ButtonStyle.primary,
-            custom_id=f"admin_add:{artist_id}",
-        )
-        self.artist_id = artist_id
-        self.artist_name = artist_name
-
-    async def callback(self, interaction: discord.Interaction):
-        gid = str(interaction.guild_id)
-        guild_data = tracked.get(gid, {})
-        info = guild_data.get(self.artist_id)
-
-        if not info:
-            await interaction.response.send_message(
-                f"❌ **{self.artist_name}** n'existe plus.", ephemeral=True
-            )
-            return
-
-        if info.get("notify_role"):
-            await interaction.response.send_message(
-                f"⚠️ **{self.artist_name}** a déjà le ping rôle.", ephemeral=True
-            )
-            return
-
-        info["notify_role"] = True
-        save_data(tracked)
-        log.info(f"[Guild {gid}] Ping rôle activé via UI : {self.artist_name}")
-
-        from bot.ui.list_view import ArtistListView
-        view = ArtistListView(interaction.user, interaction.guild, page=self.view.page, page_index=self.view.page_index)
-        await interaction.response.edit_message(view=view)
-
-
-class AdminRemoveRoleButton(ui.Button):
-    """Bouton pour retirer un artiste de la liste du rôle générique."""
-
-    def __init__(self, artist_id: str, artist_name: str):
-        super().__init__(
-            emoji="❌",
-            style=discord.ButtonStyle.secondary,
-            custom_id=f"admin_rm:{artist_id}",
-        )
-        self.artist_id = artist_id
-        self.artist_name = artist_name
-
-    async def callback(self, interaction: discord.Interaction):
-        from bot.ui.list_view import ConfirmAdminRemoveView
-        view = ConfirmAdminRemoveView(
-            user=interaction.user,
-            guild=interaction.guild,
-            artist_id=self.artist_id,
-            artist_name=self.artist_name,
-            parent_page_index=self.view.page_index,
-        )
-        await interaction.response.edit_message(view=view)
-
-
-class ConfirmAdminRemoveYes(ui.Button):
-    """Confirme le retrait du ping rôle."""
-
-    def __init__(self):
-        super().__init__(label="Confirmer", emoji="✅", style=discord.ButtonStyle.danger)
-
-    async def callback(self, interaction: discord.Interaction):
-        view: "ConfirmAdminRemoveView" = self.view
-        gid = str(interaction.guild_id)
-        guild_data = tracked.get(gid, {})
-        info = guild_data.get(view.artist_id)
-
-        if info:
-            info["notify_role"] = False
-            save_data(tracked)
-            log.info(f"[Guild {gid}] Ping rôle désactivé via UI : {view.artist_name}")
-            cleanup_artist(int(gid), view.artist_id)
-
-        from bot.ui.list_view import ArtistListView
-        new_view = ArtistListView(interaction.user, interaction.guild, page="admin", page_index=view.parent_page_index)
-        await interaction.response.edit_message(view=new_view)
-
-
-class ConfirmAdminRemoveNo(ui.Button):
-    """Annule le retrait du ping rôle."""
-
-    def __init__(self):
-        super().__init__(label="Annuler", emoji="↩️", style=discord.ButtonStyle.secondary)
-
-    async def callback(self, interaction: discord.Interaction):
-        view: "ConfirmAdminRemoveView" = self.view
-        from bot.ui.list_view import ArtistListView
-        new_view = ArtistListView(interaction.user, interaction.guild, page="admin", page_index=view.parent_page_index)
-        await interaction.response.edit_message(view=new_view)
-
-
-# ── Helpers ────────────────────────────────────────────────────────────
-
-
-def is_admin(user: discord.Member, guild: discord.Guild) -> bool:
-    """Vérifie si l'utilisateur a le rôle admin."""
-    role = guild.get_role(ADMIN_ROLE_ID)
-    if not role:
-        return False
-    return role in user.roles
