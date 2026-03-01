@@ -2,7 +2,7 @@ import asyncio
 import io
 import re
 import sys
-from contextlib import contextmanager
+from contextlib import redirect_stdout, redirect_stderr
 from functools import partial
 
 import spotipy
@@ -24,42 +24,50 @@ sp = spotipy.Spotify(
 )
 
 
-# ─── CAPTURE STDOUT ────────────────────────────────────────────────────────────
-class _StdoutCapture:
-    """
-    Capture stdout pendant un appel spotipy.
-    Spotipy affiche le Retry-After sur stdout avant de lever l'exception,
-    mais ne l'inclut pas dans l'objet SpotifyException.
-    On injecte la valeur capturée dans l'exception via _captured_retry_after.
-    """
+# ─── CAPTURE STDOUT + STDERR ──────────────────────────────────────────────────
+class _OutputCapture:
+    """Capture stdout et stderr pour intercepter le Retry-After que spotipy
+    affiche avant de lever l'exception (sans l'inclure dans l'objet exception)."""
+
+    _PATTERN = re.compile(r"Retry will occur after:\s*(\d+)")
+
     def __init__(self):
-        self._old = None
-        self._buf = io.StringIO()
+        self._stdout_buf = io.StringIO()
+        self._stderr_buf = io.StringIO()
         self.retry_after: int | None = None
 
     def __enter__(self):
-        self._old = sys.stdout
-        sys.stdout = self._buf
+        self._redir_out = redirect_stdout(self._stdout_buf)
+        self._redir_err = redirect_stderr(self._stderr_buf)
+        self._redir_out.__enter__()
+        self._redir_err.__enter__()
         return self
 
-    def __exit__(self, *_):
-        sys.stdout = self._old
-        output = self._buf.getvalue()
-        if output:
-            log.debug(f"[stdout spotipy] {output.strip()}")
-        match = re.search(r"Retry will occur after:\s*(\d+)", output)
+    def parse(self):
+        """Parse les buffers immédiatement — à appeler dans le bloc except,
+        avant que __exit__ ne restaure les streams."""
+        combined = self._stdout_buf.getvalue() + self._stderr_buf.getvalue()
+        if combined.strip():
+            log.debug(f"[spotipy output] {combined.strip()}")
+        match = self._PATTERN.search(combined)
         if match:
             self.retry_after = int(match.group(1))
-            log.debug(f"Retry-After capturé depuis stdout spotipy : {self.retry_after}s")
+
+    def __exit__(self, *args):
+        self._redir_err.__exit__(*args)
+        self._redir_out.__exit__(*args)
+        if self.retry_after is None:
+            self.parse()
 
 
 # ─── FONCTIONS SYNCHRONES (exécutées dans un thread) ──────────────────────────
 def _get_latest_release(artist_id: str) -> dict | None:
-    with _StdoutCapture() as cap:
+    with _OutputCapture() as cap:
         try:
             albums = sp.artist_albums(artist_id, album_type="album,compilation", limit=1)
             singles = sp.artist_albums(artist_id, album_type="single", limit=1)
         except SpotifyException as e:
+            cap.parse()
             if cap.retry_after is not None:
                 e._captured_retry_after = cap.retry_after
             raise
@@ -73,10 +81,11 @@ def _get_latest_release(artist_id: str) -> dict | None:
 
 def _get_artist_from_url(url: str) -> dict | None:
     artist_id = url.split("/artist/")[1].split("?")[0].split("/")[0]
-    with _StdoutCapture() as cap:
+    with _OutputCapture() as cap:
         try:
             return sp.artist(artist_id)
         except SpotifyException as e:
+            cap.parse()
             if cap.retry_after is not None:
                 e._captured_retry_after = cap.retry_after
             raise
