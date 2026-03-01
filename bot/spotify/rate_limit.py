@@ -44,8 +44,20 @@ def format_remaining() -> str:
 def extract_retry_after(exc: SpotifyException) -> int:
     """
     Extrait le délai Retry-After d'une SpotifyException.
-    Ordre : header HTTP → regex dans le message → fallback 3600s.
+    Ordre :
+      0. Attribut _captured_retry_after injecté depuis stdout (spotipy affiche
+         le délai sur stdout avant de lever l'exception, mais ne l'inclut pas
+         dans l'objet exception)
+      1. Header HTTP Retry-After
+      2. Regex dans le message d'erreur
+      3. Fallback 3600s
     """
+    # 0. Valeur capturée depuis stdout par _StdoutCapture dans api.py
+    captured = getattr(exc, "_captured_retry_after", None)
+    if captured is not None:
+        log.debug(f"Retry-After extrait depuis stdout spotipy : {captured}s")
+        return captured
+
     # 1. Header HTTP
     if exc.headers:
         raw = exc.headers.get("Retry-After") or exc.headers.get("retry-after")

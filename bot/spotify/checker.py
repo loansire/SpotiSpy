@@ -2,7 +2,7 @@ import asyncio
 import discord
 from spotipy.exceptions import SpotifyException
 
-from bot.config import ANNOUNCE_CHANNEL, NOTIFY_ROLE_ID, SLEEP_THRESHOLD
+from bot.config import ANNOUNCE_CHANNEL, SLEEP_THRESHOLD
 from bot.data.storage import tracked, save_data
 from bot.spotify.api import get_latest_release
 from bot.spotify.rate_limit import is_rate_limited, activate_rate_limit, extract_retry_after, format_remaining
@@ -13,12 +13,6 @@ def build_mentions(info: dict, guild: discord.Guild) -> str:
     mentions = []
     for uid in info.get("subscribers", []):
         mentions.append(f"<@{uid}>")
-    if info.get("notify_role"):
-        role = guild.get_role(NOTIFY_ROLE_ID)
-        if role:
-            mentions.append(role.mention)
-        else:
-            log.warning(f"Rôle introuvable (ID={NOTIFY_ROLE_ID}), ping rôle ignoré")
     return " ".join(mentions) if mentions else ""
 
 
@@ -37,7 +31,7 @@ async def check_guild(guild: discord.Guild, bot: discord.Client, filter_name: st
     }
 
     use_sleep = len(targets) >= SLEEP_THRESHOLD
-    log.info(f"[Guild {gid}] Vérification de {len(targets)} artiste(s){'  — délai 1s activé' if use_sleep else ''}...")
+    log.info(f"[Guild {gid}] Vérification de {len(targets)} artiste(s){'  — délai 2s activé' if use_sleep else ''}...")
 
     for artist_id, info in list(targets.items()):
         if is_rate_limited():
@@ -49,7 +43,7 @@ async def check_guild(guild: discord.Guild, bot: discord.Client, filter_name: st
             if not release:
                 log.debug(f"Aucun album trouvé pour '{info['name']}'")
                 if use_sleep:
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(2)
                 continue
 
             if release["id"] != info.get("last_release_id"):
