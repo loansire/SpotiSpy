@@ -10,6 +10,7 @@ from spotipy.oauth2 import SpotifyClientCredentials
 from spotipy.exceptions import SpotifyException
 
 from bot.config import SPOTIFY_CLIENT_ID, SPOTIFY_SECRET
+from bot.spotify.throttle import throttle
 from bot.utils.logger import log
 
 # ─── CLIENT SPOTIFY ────────────────────────────────────────────────────────────
@@ -60,27 +61,22 @@ class _OutputCapture:
             self.parse()
 
 
-# ─── FONCTIONS SYNCHRONES (exécutées dans un thread) ──────────────────────────
-def _get_latest_release(artist_id: str) -> dict | None:
+# ─── FONCTIONS SYNCHRONES UNITAIRES (exécutées dans un thread) ────────────────
+
+def _get_artist_albums(artist_id: str, album_type: str) -> dict:
+    """Un seul appel artist_albums — une requête API = un acquire."""
     with _OutputCapture() as cap:
         try:
-            albums = sp.artist_albums(artist_id, album_type="album,compilation", limit=1)
-            singles = sp.artist_albums(artist_id, album_type="single", limit=1)
+            return sp.artist_albums(artist_id, album_type=album_type, limit=1)
         except SpotifyException as e:
             cap.parse()
             if cap.retry_after is not None:
                 e._captured_retry_after = cap.retry_after
             raise
 
-    items = albums.get("items", []) + singles.get("items", [])
-    if not items:
-        return None
-    items.sort(key=lambda x: x.get("release_date", "0000"), reverse=True)
-    return items[0]
 
-
-def _get_artist_from_url(url: str) -> dict | None:
-    artist_id = url.split("/artist/")[1].split("?")[0].split("/")[0]
+def _get_artist(artist_id: str) -> dict | None:
+    """Récupère un artiste par son ID."""
     with _OutputCapture() as cap:
         try:
             return sp.artist(artist_id)
@@ -92,12 +88,40 @@ def _get_artist_from_url(url: str) -> dict | None:
 
 
 # ─── WRAPPERS ASYNC ───────────────────────────────────────────────────────────
-async def get_latest_release(artist_id: str) -> dict | None:
+
+async def get_latest_release(artist_id: str, priority: bool = False) -> dict | None:
+    """
+    Récupère la dernière sortie d'un artiste (2 requêtes API throttlées).
+
+    Args:
+        priority: True pour les commandes utilisateur (/spy),
+                  False pour le checker (défaut).
+    """
     loop = asyncio.get_event_loop()
     try:
-        result = await loop.run_in_executor(None, partial(_get_latest_release, artist_id))
-        log.debug(f"Dernière sortie pour {artist_id}: {result['name'] if result else 'aucune'}")
+        # Requête 1 : albums + compilations
+        await throttle.acquire(priority=priority)
+        albums = await loop.run_in_executor(
+            None, partial(_get_artist_albums, artist_id, "album,compilation")
+        )
+
+        # Requête 2 : singles
+        await throttle.acquire(priority=priority)
+        singles = await loop.run_in_executor(
+            None, partial(_get_artist_albums, artist_id, "single")
+        )
+
+        # Fusionner et trier par date
+        items = albums.get("items", []) + singles.get("items", [])
+        if not items:
+            log.debug(f"Dernière sortie pour {artist_id}: aucune")
+            return None
+
+        items.sort(key=lambda x: x.get("release_date", "0000"), reverse=True)
+        result = items[0]
+        log.debug(f"Dernière sortie pour {artist_id}: {result['name']}")
         return result
+
     except SpotifyException as e:
         log.error(f"SpotifyException ({artist_id}) | HTTP {e.http_status} | {e.msg} | {e.reason}")
         raise
@@ -106,10 +130,19 @@ async def get_latest_release(artist_id: str) -> dict | None:
         raise
 
 
-async def get_artist_from_url(url: str) -> dict | None:
+async def get_artist_from_url(url: str, priority: bool = False) -> dict | None:
+    """
+    Récupère un artiste depuis son URL Spotify (1 requête API throttlée).
+
+    Args:
+        priority: True pour les commandes utilisateur (/spy),
+                  False pour le checker (défaut).
+    """
+    artist_id = url.split("/artist/")[1].split("?")[0].split("/")[0]
     loop = asyncio.get_event_loop()
     try:
-        result = await loop.run_in_executor(None, partial(_get_artist_from_url, url))
+        await throttle.acquire(priority=priority)
+        result = await loop.run_in_executor(None, partial(_get_artist, artist_id))
         if result:
             log.debug(f"Artiste trouvé : {result['name']} ({result['id']})")
         return result

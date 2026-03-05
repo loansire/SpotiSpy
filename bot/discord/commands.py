@@ -52,7 +52,7 @@ class SpotifyCog(commands.Cog):
 
         # ── Fonctionnement normal ──────────────────────────────────────
         try:
-            artist = await get_artist_from_url(url)
+            artist = await get_artist_from_url(url, priority=True)
             if not artist:
                 await interaction.followup.send("❌ Impossible de récupérer l'artiste.", ephemeral=True)
                 return
@@ -88,7 +88,7 @@ class SpotifyCog(commands.Cog):
             return
 
         try:
-            release = await get_latest_release(aid)
+            release = await get_latest_release(aid, priority=True)
         except SpotifyException as e:
             if e.http_status == 429:
                 retry_after = extract_retry_after(e)

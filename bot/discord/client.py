@@ -17,9 +17,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # ─── LOOP ─────────────────────────────────────────────────────────────────────
 @tasks.loop(hours=CHECK_INTERVAL_H)
 async def check_releases():
-    log.info("Début du cycle de vérification...")
     await do_check(bot)
-    log.info("Cycle terminé.")
 
 
 @check_releases.before_loop

@@ -2,10 +2,11 @@ import asyncio
 import discord
 from spotipy.exceptions import SpotifyException
 
-from bot.config import ANNOUNCE_CHANNEL, SLEEP_THRESHOLD
+from bot.config import ANNOUNCE_CHANNEL
 from bot.data.storage import tracked, save_data
 from bot.spotify.api import get_latest_release
 from bot.spotify.rate_limit import is_rate_limited, activate_rate_limit, extract_retry_after, format_remaining
+from bot.spotify.throttle import throttle
 from bot.utils.logger import log
 
 
@@ -30,8 +31,7 @@ async def check_guild(guild: discord.Guild, bot: discord.Client, filter_name: st
         if filter_name is None or info["name"].lower() == filter_name.lower()
     }
 
-    use_sleep = len(targets) >= SLEEP_THRESHOLD
-    log.info(f"[Guild {gid}] Vérification de {len(targets)} artiste(s){'  — délai 2s activé' if use_sleep else ''}...")
+    log.info(f"[Guild {gid}] Vérification de {len(targets)} artiste(s)...")
 
     for artist_id, info in list(targets.items()):
         if is_rate_limited():
@@ -42,8 +42,6 @@ async def check_guild(guild: discord.Guild, bot: discord.Client, filter_name: st
             release = await get_latest_release(artist_id)
             if not release:
                 log.debug(f"Aucun album trouvé pour '{info['name']}'")
-                if use_sleep:
-                    await asyncio.sleep(2)
                 continue
 
             if release["id"] != info.get("last_release_id"):
@@ -61,9 +59,6 @@ async def check_guild(guild: discord.Guild, bot: discord.Client, filter_name: st
             else:
                 log.debug(f"Pas de nouvelle sortie pour '{info['name']}' — ID inchangé")
 
-            if use_sleep:
-                await asyncio.sleep(1)
-
         except SpotifyException as e:
             if e.http_status == 429:
                 retry_after = extract_retry_after(e)
@@ -80,6 +75,10 @@ async def do_check(bot: discord.Client, filter_name: str = None, guild_id: int =
         log.info(f"⏭️ Cycle skippé — rate limit encore actif ({format_remaining()})")
         return
 
+    total_artists = sum(len(a) for a in tracked.values())
+    count, maximum, pct = throttle.get_usage()
+    log.info(f"🔄 Début du cycle — {total_artists} artiste(s), ~{total_artists * 2} requêtes prévues | Throttle : {count}/{maximum} ({pct:.0%})")
+
     guild_ids = [guild_id] if guild_id else [int(gid) for gid in tracked.keys()]
 
     for gid in guild_ids:
@@ -92,3 +91,6 @@ async def do_check(bot: discord.Client, filter_name: str = None, guild_id: int =
             log.warning(f"Guild introuvable (ID={gid}), skipped")
             continue
         await check_guild(guild, bot, filter_name=filter_name)
+
+    count, maximum, pct = throttle.get_usage()
+    log.info(f"✅ Cycle terminé | Throttle : {count}/{maximum} ({pct:.0%})")

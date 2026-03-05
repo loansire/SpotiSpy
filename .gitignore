@@ -4,3 +4,4 @@
 tracked.json
 *.log
 __pycache__/
+queue.json
