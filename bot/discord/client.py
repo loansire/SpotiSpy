@@ -4,8 +4,8 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from bot.config import CHECK_INTERVAL_H, STARTUP_DELAY_S
-from bot.data.storage import tracked
-from bot.data.queue import queue
+from bot.data.database import init_pool, close_pool
+from bot.data.pending import queue
 from bot.spotify.checker import do_check
 from bot.utils.logger import log
 
@@ -30,6 +30,9 @@ async def before_check():
 # ─── EVENTS ────────────────────────────────────────────────────────────────────
 @bot.event
 async def on_ready():
+    # Init pool MySQL
+    await init_pool()
+
     # Exposer la task loop pour que rate_limit.py puisse la stop/restart
     bot._check_releases_task = check_releases
 
@@ -47,8 +50,17 @@ async def on_ready():
         await _process_queue()
 
     check_releases.start()
-    total = sum(len(a) for a in tracked.values())
-    log.info(f"Bot connecté en tant que {bot.user} | {len(tracked)} guild(s) | {total} artiste(s) suivis")
+
+    from bot.data import storage
+    all_artists = await storage.get_all_tracked()
+    guild_ids = set(a["guild_id"] for a in all_artists)
+    log.info(f"Bot connecté en tant que {bot.user} | {len(guild_ids)} guild(s) | {len(all_artists)} artiste(s) suivis")
+
+
+@bot.event
+async def on_close():
+    """Ferme proprement le pool MySQL à l'arrêt du bot."""
+    await close_pool()
 
 
 @bot.tree.error

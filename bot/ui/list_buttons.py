@@ -1,7 +1,7 @@
 import discord
 from discord import ui
 
-from bot.data.storage import tracked, save_data, cleanup_artist
+from bot.data import storage
 from bot.utils.logger import log
 
 
@@ -22,29 +22,26 @@ class SubscribeButton(ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         uid = interaction.user.id
-        gid = str(interaction.guild_id)
-        guild_data = tracked.get(gid, {})
-        info = guild_data.get(self.artist_id)
+        gid = interaction.guild_id
 
-        if not info:
+        artist = await storage.get_artist(gid, self.artist_id)
+        if not artist:
             await interaction.response.send_message(
                 f"❌ **{self.artist_name}** n'existe plus dans la liste.", ephemeral=True
             )
             return
 
-        subs = info.setdefault("subscribers", [])
-        if uid in subs:
+        if await storage.is_subscribed(gid, self.artist_id, uid):
             await interaction.response.send_message(
                 f"⚠️ Tu es déjà abonné(e) à **{self.artist_name}**.", ephemeral=True
             )
             return
 
-        subs.append(uid)
-        save_data(tracked)
+        await storage.add_subscriber(gid, self.artist_id, uid)
         log.info(f"[Guild {gid}] Abonné ajouté via UI : {interaction.user} → {self.artist_name}")
 
         from bot.ui.list_view import ArtistListView
-        view = ArtistListView(interaction.user, interaction.guild, page=self.view.page, page_index=self.view.page_index)
+        view = await ArtistListView.create(interaction.user, interaction.guild, page=self.view.page, page_index=self.view.page_index)
         await interaction.response.edit_message(view=view)
 
 
@@ -82,20 +79,14 @@ class ConfirmYesButton(ui.Button):
     async def callback(self, interaction: discord.Interaction):
         view: "ConfirmUnsubView" = self.view
         uid = interaction.user.id
-        gid = str(interaction.guild_id)
-        guild_data = tracked.get(gid, {})
-        info = guild_data.get(view.artist_id)
+        gid = interaction.guild_id
 
-        if info:
-            subs = info.get("subscribers", [])
-            if uid in subs:
-                subs.remove(uid)
-                save_data(tracked)
-                log.info(f"[Guild {gid}] Abonné retiré via UI : {interaction.user} → {view.artist_name}")
-                cleanup_artist(int(gid), view.artist_id)
+        await storage.remove_subscriber(gid, view.artist_id, uid)
+        log.info(f"[Guild {gid}] Abonné retiré via UI : {interaction.user} → {view.artist_name}")
+        await storage.cleanup_artist(gid, view.artist_id)
 
         from bot.ui.list_view import ArtistListView
-        new_view = ArtistListView(interaction.user, interaction.guild, page=view.parent_page, page_index=view.parent_page_index)
+        new_view = await ArtistListView.create(interaction.user, interaction.guild, page=view.parent_page, page_index=view.parent_page_index)
         await interaction.response.edit_message(view=new_view)
 
 
@@ -108,7 +99,7 @@ class ConfirmNoButton(ui.Button):
     async def callback(self, interaction: discord.Interaction):
         view: "ConfirmUnsubView" = self.view
         from bot.ui.list_view import ArtistListView
-        new_view = ArtistListView(interaction.user, interaction.guild, page=view.parent_page, page_index=view.parent_page_index)
+        new_view = await ArtistListView.create(interaction.user, interaction.guild, page=view.parent_page, page_index=view.parent_page_index)
         await interaction.response.edit_message(view=new_view)
 
 
@@ -134,8 +125,7 @@ class SwitchPageButton(ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         from bot.ui.list_view import ArtistListView
-        # Changement d'onglet → retour à la page 0
-        view = ArtistListView(interaction.user, interaction.guild, page=self.target_page, page_index=0)
+        view = await ArtistListView.create(interaction.user, interaction.guild, page=self.target_page, page_index=0)
         await interaction.response.edit_message(view=view)
 
 
@@ -155,7 +145,7 @@ class PrevPageButton(ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         from bot.ui.list_view import ArtistListView
-        view = ArtistListView(
+        view = await ArtistListView.create(
             interaction.user,
             interaction.guild,
             page=self.view.page,
@@ -177,7 +167,7 @@ class NextPageButton(ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         from bot.ui.list_view import ArtistListView
-        view = ArtistListView(
+        view = await ArtistListView.create(
             interaction.user,
             interaction.guild,
             page=self.view.page,

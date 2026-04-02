@@ -3,8 +3,8 @@ from discord import app_commands
 from discord.ext import commands
 from spotipy.exceptions import SpotifyException
 
-from bot.data.storage import tracked, save_data, add_artist, cleanup_artist
-from bot.data.queue import add_to_queue, is_duplicate
+from bot.data import storage
+from bot.data.pending import add_to_queue, is_duplicate
 from bot.spotify.api import get_artist_from_url, get_latest_release
 from bot.spotify.rate_limit import is_rate_limited, activate_rate_limit, extract_retry_after, format_remaining
 from bot.ui.list_view import ArtistListView
@@ -15,7 +15,7 @@ class SpotifyCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # ── /follow ────────────────────────────────────────────────────────
+    # ── /spy ───────────────────────────────────────────────────────────
     @app_commands.command(name="spy", description="S'abonner aux alertes d'un artiste Spotify")
     @app_commands.describe(url="Lien de la page Spotify de l'artiste")
     async def follow(self, interaction: discord.Interaction, url: str):
@@ -81,12 +81,13 @@ class SpotifyCog(commands.Cog):
         aid  = artist["id"]
         name = artist["name"]
 
-        # Déjà abonné
-        guild_data = tracked.get(str(gid), {})
-        if aid in guild_data and uid in guild_data[aid].get("subscribers", []):
+        # Déjà abonné ?
+        if await storage.is_subscribed(gid, aid, uid):
             await interaction.followup.send(f"⚠️ Tu es déjà abonné(e) à **{name}**.", ephemeral=True)
             return
 
+        # Récupérer la dernière sortie
+        release = None
         try:
             release = await get_latest_release(aid, priority=True)
         except SpotifyException as e:
@@ -94,54 +95,53 @@ class SpotifyCog(commands.Cog):
                 retry_after = extract_retry_after(e)
                 activate_rate_limit(retry_after, self.bot)
             log.warning(f"`/spy` Impossible de récupérer la dernière sortie de '{name}' | {e}")
-            release = None
         except Exception as e:
             log.warning(f"`/spy` Impossible de récupérer la dernière sortie de '{name}' | {e}")
-            release = None
 
-        created = add_artist(gid, artist, release, notify_role=False, user_id=uid)
-        action  = "ajouté et tu es abonné(e)" if created else "tu es maintenant abonné(e)"
+        # Ajouter l'artiste + abonnement
+        created = await storage.add_artist(gid, artist, release)
+        await storage.add_subscriber(gid, aid, uid)
+
+        action = "ajouté et tu es abonné(e)" if created else "tu es maintenant abonné(e)"
         log.info(f"[Guild {gid}] {'Artiste ajouté' if created else 'Abonné ajouté'} : {interaction.user} → {name}")
         await interaction.followup.send(f"✅ **{name}** — {action} aux alertes !", ephemeral=True)
 
-    # ── /list ──────────────────────────────────────────────────────────
+    # ── /liste ─────────────────────────────────────────────────────────
     @app_commands.command(name="liste", description="Voir les artistes suivis sur ce serveur")
     async def list_artists(self, interaction: discord.Interaction):
-        guild_data = tracked.get(str(interaction.guild_id), {})
-        if not guild_data:
+        artists = await storage.get_guild_artists(interaction.guild_id)
+        if not artists:
             await interaction.response.send_message("📭 Aucun artiste suivi sur ce serveur.", ephemeral=True)
             return
 
-        view = ArtistListView(interaction.user, interaction.guild, page="follows")
+        view = await ArtistListView.create(interaction.user, interaction.guild, page="follows")
         await interaction.response.send_message(view=view, ephemeral=True)
 
-    # ── /latest ────────────────────────────────────────────────────────
+    # ── /derniere_sortie ───────────────────────────────────────────────
     @app_commands.command(name="derniere_sortie", description="Afficher la dernière sortie connue d'un artiste suivi")
     @app_commands.describe(artiste="Nom de l'artiste")
     @app_commands.autocomplete(artiste=artist_autocomplete)
     async def latest(self, interaction: discord.Interaction, artiste: str):
-        guild_data = tracked.get(str(interaction.guild_id), {})
-        match = next(((aid, info) for aid, info in guild_data.items()
-                      if info["name"].lower() == artiste.lower()), None)
+        artists = await storage.get_guild_artists(interaction.guild_id)
+        match = next((a for a in artists if a["name"].lower() == artiste.lower()), None)
 
         if not match:
             await interaction.response.send_message(
-                f"❌ **{artiste}** n'est pas dans la liste. Utilise `/list` pour voir les artistes suivis.",
+                f"❌ **{artiste}** n'est pas dans la liste. Utilise `/liste` pour voir les artistes suivis.",
                 ephemeral=True
             )
             return
 
-        aid, info = match
-        url  = info.get("last_release_url")
-        name = info.get("last_release_name")
+        url  = match.get("last_release_url")
+        name = match.get("last_release_name")
 
         if not url:
             await interaction.response.send_message(
-                f"😕 Aucune sortie connue pour **{info['name']}** pour l'instant.", ephemeral=True
+                f"😕 Aucune sortie connue pour **{match['name']}** pour l'instant.", ephemeral=True
             )
             return
 
-        await interaction.response.send_message(f"[{info['name']} — {name}]({url})")
+        await interaction.response.send_message(f"[{match['name']} — {name}]({url})")
 
 
 async def setup(bot: commands.Bot):

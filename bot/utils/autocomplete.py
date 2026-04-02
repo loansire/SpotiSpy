@@ -1,24 +1,27 @@
 import discord
 from discord import app_commands
-from bot.data.storage import tracked
+from bot.data import storage
 
 
 async def artist_autocomplete(interaction: discord.Interaction, current: str):
     """Autocomplete tous les artistes du serveur."""
-    guild_data = tracked.get(str(interaction.guild_id), {})
+    artists = await storage.get_guild_artists(interaction.guild_id)
     return [
-        app_commands.Choice(name=info["name"], value=info["name"])
-        for info in guild_data.values()
-        if current.lower() in info["name"].lower()
+        app_commands.Choice(name=a["name"], value=a["name"])
+        for a in artists
+        if current.lower() in a["name"].lower()
     ][:25]
 
 
 async def subscribed_autocomplete(interaction: discord.Interaction, current: str):
     """Autocomplete uniquement les artistes auxquels l'utilisateur est abonné."""
-    guild_data = tracked.get(str(interaction.guild_id), {})
+    artists = await storage.get_guild_artists(interaction.guild_id)
     uid = interaction.user.id
-    return [
-        app_commands.Choice(name=info["name"], value=info["name"])
-        for info in guild_data.values()
-        if uid in info.get("subscribers", []) and current.lower() in info["name"].lower()
-    ][:25]
+    results = []
+    for a in artists:
+        if current.lower() in a["name"].lower():
+            if await storage.is_subscribed(interaction.guild_id, a["artist_id"], uid):
+                results.append(app_commands.Choice(name=a["name"], value=a["name"]))
+        if len(results) >= 25:
+            break
+    return results

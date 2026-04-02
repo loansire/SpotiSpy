@@ -19,21 +19,10 @@ from bot.ui.list_buttons import (
 class ArtistListView(ui.LayoutView):
     """Vue principale avec pagination : follows / server."""
 
-    def __init__(self, user: discord.Member, guild: discord.Guild, page: str = "follows", page_index: int = 0):
+    def __init__(self, user: discord.Member, page: str, page_index: int, items: list, total_pages: int):
         super().__init__(timeout=120)
         self.user = user
         self.page = page
-        self.page_index = page_index
-        self.message: discord.Message | None = None
-
-        # ── Construire le contenu de la page courante ──────────────────
-        if page == "server":
-            items, total_pages = build_server_artists(user, guild, page_index)
-        else:
-            items, total_pages = build_my_follows(user, guild, page_index)
-            page = "follows"
-
-        # Clamp page_index au cas où on serait hors bornes
         self.page_index = max(0, min(page_index, total_pages - 1))
 
         # ── Container principal ────────────────────────────────────────
@@ -51,6 +40,17 @@ class ArtistListView(ui.LayoutView):
         nav_follows = SwitchPageButton(target_page="follows", disabled=(page == "follows"))
         nav_server  = SwitchPageButton(target_page="server",  disabled=(page == "server"))
         self.add_item(ui.ActionRow(nav_follows, nav_server))
+
+    @classmethod
+    async def create(cls, user: discord.Member, guild: discord.Guild, page: str = "follows", page_index: int = 0):
+        """Factory async — charge les données puis construit la vue."""
+        if page == "server":
+            items, total_pages = await build_server_artists(user, guild, page_index)
+        else:
+            items, total_pages = await build_my_follows(user, guild, page_index)
+            page = "follows"
+
+        return cls(user, page, page_index, items, total_pages)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user.id:
@@ -83,7 +83,6 @@ class ConfirmUnsubView(ui.LayoutView):
         self.artist_name = artist_name
         self.parent_page = parent_page
         self.parent_page_index = parent_page_index
-        self.message: discord.Message | None = None
 
         items = build_confirm_unsub(artist_name)
         container = ui.Container(*items, accent_color=0xFF0000)

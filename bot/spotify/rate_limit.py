@@ -160,7 +160,7 @@ async def _expiration_timer():
 
 async def _process_queue():
     """Traite la file d'attente après expiration du rate limit."""
-    from bot.data.queue import queue, remove_entry, save_queue
+    from bot.data.pending import queue, remove_entry, save_queue
     from bot.spotify.api import get_artist_from_url, get_latest_release
     from bot.data.storage import add_artist
 

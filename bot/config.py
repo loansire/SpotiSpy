@@ -25,3 +25,10 @@ THROTTLE_WINDOW_S       = 30     # fenêtre glissante Spotify (secondes)
 THROTTLE_MAX_REQUESTS   = 25     # limite conservatrice (à calibrer en prod)
 THROTTLE_RESERVED_SLOTS = 3      # slots réservés aux commandes utilisateur (/spy)
 # Delay calculé automatiquement : WINDOW / (MAX - RESERVED) = 30/22 ≈ 1.36s entre chaque requête
+
+# ─── BASE DE DONNÉES ──────────────────────────────────────────────────────────
+DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_PORT = int(os.getenv("DB_PORT", 3306))
+DB_USER = os.getenv("DB_USER")
+DB_PASS = os.getenv("DB_PASS")
+DB_NAME = os.getenv("DB_NAME")
