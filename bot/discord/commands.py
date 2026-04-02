@@ -34,14 +34,14 @@ class SpotifyCog(commands.Cog):
             gid = interaction.guild_id
             uid = interaction.user.id
 
-            if is_duplicate(gid, url):
+            if await is_duplicate(gid, url):
                 await interaction.followup.send(
                     "⚠️ Cette demande est déjà en file d'attente.",
                     ephemeral=True
                 )
                 return
 
-            add_to_queue(gid, uid, url)
+            await add_to_queue(gid, uid, url)
             await interaction.followup.send(
                 f"⏳ L'API Spotify est temporairement indisponible. "
                 f"Ta demande sera traitée automatiquement. "
@@ -60,7 +60,7 @@ class SpotifyCog(commands.Cog):
             if e.http_status == 429:
                 retry_after = extract_retry_after(e)
                 activate_rate_limit(retry_after, self.bot)
-                add_to_queue(interaction.guild_id, interaction.user.id, url)
+                await add_to_queue(interaction.guild_id, interaction.user.id, url)
                 await interaction.followup.send(
                     f"⏳ L'API Spotify est temporairement indisponible. "
                     f"Ta demande sera traitée automatiquement. "

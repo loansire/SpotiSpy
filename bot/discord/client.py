@@ -5,7 +5,6 @@ from discord.ext import commands, tasks
 
 from bot.config import CHECK_INTERVAL_H, STARTUP_DELAY_S
 from bot.data.database import init_pool, close_pool
-from bot.data.pending import queue
 from bot.spotify.checker import do_check
 from bot.utils.logger import log
 
@@ -30,10 +29,8 @@ async def before_check():
 # ─── EVENTS ────────────────────────────────────────────────────────────────────
 @bot.event
 async def on_ready():
-    # Init pool MySQL
     await init_pool()
 
-    # Exposer la task loop pour que rate_limit.py puisse la stop/restart
     bot._check_releases_task = check_releases
 
     cmds = bot.tree.get_commands()
@@ -43,9 +40,11 @@ async def on_ready():
     synced = await bot.tree.sync()
     log.info(f"Sync terminé : {len(synced)} commande(s) synchronisées")
 
-    # Traiter la file résiduelle (crash précédent) avant de lancer le cycle
-    if queue:
-        log.info(f"📋 {len(queue)} requête(s) en file d'attente au démarrage, traitement...")
+    # Traiter la file résiduelle (crash précédent)
+    from bot.data.pending import count_pending
+    pending_count = await count_pending()
+    if pending_count > 0:
+        log.info(f"📋 {pending_count} requête(s) en file d'attente au démarrage, traitement...")
         from bot.spotify.rate_limit import _process_queue
         await _process_queue()
 
@@ -59,7 +58,6 @@ async def on_ready():
 
 @bot.event
 async def on_close():
-    """Ferme proprement le pool MySQL à l'arrêt du bot."""
     await close_pool()
 
 

@@ -45,20 +45,16 @@ def extract_retry_after(exc: SpotifyException) -> int:
     """
     Extrait le délai Retry-After d'une SpotifyException.
     Ordre :
-      0. Attribut _captured_retry_after injecté depuis stdout (spotipy affiche
-         le délai sur stdout avant de lever l'exception, mais ne l'inclut pas
-         dans l'objet exception)
+      0. Attribut _captured_retry_after injecté depuis stdout
       1. Header HTTP Retry-After
       2. Regex dans le message d'erreur
       3. Fallback 3600s
     """
-    # 0. Valeur capturée depuis stdout par _StdoutCapture dans api.py
     captured = getattr(exc, "_captured_retry_after", None)
     if captured is not None:
         log.debug(f"Retry-After extrait depuis stdout spotipy : {captured}s")
         return captured
 
-    # 1. Header HTTP
     if exc.headers:
         raw = exc.headers.get("Retry-After") or exc.headers.get("retry-after")
         if raw is not None:
@@ -69,7 +65,6 @@ def extract_retry_after(exc: SpotifyException) -> int:
             except (ValueError, TypeError):
                 pass
 
-    # 2. Regex dans le message d'erreur
     pattern = r"Retry will occur after:\s*(\d+)"
     for source in (exc.msg, exc.reason, str(exc)):
         if source:
@@ -79,7 +74,6 @@ def extract_retry_after(exc: SpotifyException) -> int:
                 log.debug(f"Retry-After extrait du message : {value}s")
                 return value
 
-    # 3. Fallback
     log.warning("Retry-After introuvable dans l'exception, fallback à 3600s")
     log.debug(f"  exc.headers = {exc.headers}")
     log.debug(f"  exc.msg     = {exc.msg}")
@@ -99,7 +93,6 @@ def activate_rate_limit(retry_after: int, bot):
     _bot_ref = bot
     _rate_limit_until = time.monotonic() + retry_after
 
-    # ── Stopper le cycle horaire ───────────────────────────────────────
     check_releases = getattr(bot, "_check_releases_task", None)
     if check_releases and check_releases.is_running():
         check_releases.cancel()
@@ -107,13 +100,11 @@ def activate_rate_limit(retry_after: int, bot):
     else:
         log.warning(f"⛔ Rate limit activé pour {format_remaining()} (cycle déjà inactif)")
 
-    # ── Annuler les tasks précédentes si elles existent ────────────────
     if _timer_task and not _timer_task.done():
         _timer_task.cancel()
     if _ping_task and not _ping_task.done():
         _ping_task.cancel()
 
-    # ── Démarrer le timer + ping ───────────────────────────────────────
     _timer_task = asyncio.create_task(_expiration_timer())
     _ping_task = asyncio.create_task(_ping_loop())
 
@@ -147,10 +138,8 @@ async def _expiration_timer():
 
     log.info("✅ Rate limit expiré")
 
-    # ── Traiter la file d'attente ──────────────────────────────────────
     await _process_queue()
 
-    # ── Relancer le cycle horaire ──────────────────────────────────────
     if _bot_ref:
         check_releases = getattr(_bot_ref, "_check_releases_task", None)
         if check_releases and not check_releases.is_running():
@@ -160,20 +149,20 @@ async def _expiration_timer():
 
 async def _process_queue():
     """Traite la file d'attente après expiration du rate limit."""
-    from bot.data.pending import queue, remove_entry, save_queue
+    from bot.data.pending import get_all_pending, remove_entry
     from bot.spotify.api import get_artist_from_url, get_latest_release
-    from bot.data.storage import add_artist
+    from bot.data import storage
 
-    if not queue:
+    pending = await get_all_pending()
+
+    if not pending:
         log.info("📭 File d'attente vide, rien à traiter")
         return
 
-    log.info(f"📋 Traitement de la file d'attente ({len(queue)} requête(s))...")
-
-    # Copie pour itérer sans problème pendant les suppressions
-    pending = list(queue)
+    log.info(f"📋 Traitement de la file d'attente ({len(pending)} requête(s))...")
 
     for entry in pending:
+        entry_id = entry["id"]
         guild_id = entry["guild_id"]
         user_id = entry["user_id"]
         url = entry["url"]
@@ -182,7 +171,7 @@ async def _process_queue():
             artist = await get_artist_from_url(url)
             if not artist:
                 log.warning(f"File — artiste introuvable : {url}")
-                remove_entry(entry)
+                await remove_entry(entry_id)
                 await asyncio.sleep(QUEUE_REQUEST_DELAY)
                 continue
 
@@ -199,9 +188,10 @@ async def _process_queue():
             except Exception as e:
                 log.warning(f"File — erreur récup. dernière sortie de '{artist['name']}' : {e}")
 
-            add_artist(guild_id, artist, release, notify_role=False, user_id=user_id)
+            await storage.add_artist(guild_id, artist, release)
+            await storage.add_subscriber(guild_id, artist["id"], user_id)
             log.info(f"File — ✅ {artist['name']} ajouté (guild={guild_id}, user={user_id})")
-            remove_entry(entry)
+            await remove_entry(entry_id)
 
         except SpotifyException as e:
             if e.http_status == 429:
@@ -210,11 +200,11 @@ async def _process_queue():
                 activate_rate_limit(retry_after, _bot_ref)
                 return
             log.warning(f"File — erreur pour {url} : {e}")
-            remove_entry(entry)
+            await remove_entry(entry_id)
 
         except Exception as e:
             log.error(f"File — erreur inattendue pour {url} : {type(e).__name__}: {e}")
-            remove_entry(entry)
+            await remove_entry(entry_id)
 
         await asyncio.sleep(QUEUE_REQUEST_DELAY)
 
