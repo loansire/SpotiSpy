@@ -32,8 +32,15 @@ async def get_guild_artists(guild_id: int) -> list[dict]:
 
 
 async def get_all_tracked() -> list[dict]:
-    """Tous les artistes de tous les guilds (pour le checker)."""
-    return await fetchall("SELECT * FROM artists ORDER BY guild_id, name")
+    """Tous les artistes de tous les guilds (pour le checker).
+
+    Triés par ancienneté de vérification : les jamais-vérifiés (NULL)
+    en premier, puis du plus ancien au plus récent. Permet une rotation
+    équitable qui reprend là où le cycle précédent s'est arrêté.
+    """
+    return await fetchall(
+        "SELECT * FROM artists ORDER BY last_checked_at ASC, name"
+    )
 
 
 async def get_subscribers(guild_id: int, artist_id: str) -> list[int]:
@@ -120,6 +127,12 @@ async def update_release(guild_id: int, artist_id: str, release: dict):
         ),
     )
 
+async def mark_checked(guild_id: int, artist_id: str):
+    """Marque un artiste comme vérifié à l'instant (curseur de rotation)."""
+    await execute(
+        "UPDATE artists SET last_checked_at = NOW() WHERE guild_id = %s AND artist_id = %s",
+        (guild_id, artist_id),
+    )
 
 async def update_image(guild_id: int, artist_id: str, image_url: str):
     """Met à jour l'image de profil d'un artiste (si absente)."""
