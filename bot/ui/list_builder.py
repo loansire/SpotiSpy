@@ -12,10 +12,16 @@ PAGE_SIZE = 4  # Artistes affichés par page
 
 def _artist_text(artist: dict) -> str:
     """Texte formaté pour un artiste."""
-    text = f"**{artist['name']}**"
+    artist_url = f"https://open.spotify.com/artist/{artist['artist_id']}"
+    text = f"**[{artist['name']}]({artist_url})**"
+
     last = artist.get("last_release_name")
+    last_url = artist.get("last_release_url")
     if last:
-        text += f"\n-# Dernière sortie : {last}"
+        if last_url:
+            text += f"\n-# Dernière sortie : [{last}]({last_url})"
+        else:
+            text += f"\n-# Dernière sortie : {last}"
     return text
 
 
